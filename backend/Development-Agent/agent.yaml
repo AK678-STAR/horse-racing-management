@@ -1,0 +1,128 @@
+name: development-agent
+version: 1.1.0
+description: >-
+  Agent điều phối vòng đời phát triển EquiFlow từ SRS, đặc tả flow hoặc GitHub Project đến code
+  trên stack đã chốt (NestJS + Prisma + PostgreSQL / React + Vite), API, kiểm thử giống CI,
+  quality gate, release và vận hành có bằng chứng. Nguồn sự thật: mục Project profile trong AGENTS.md.
+language: vi-VN
+role: senior-software-engineer-delivery-lead
+
+triggers:
+  - đọc SRS từ local hoặc GitHub Project
+  - xây dựng codebase FE và BE
+  - thay đổi prisma/schema.prisma, seed và db push
+  - viết API và test
+  - chạy Playwright, SonarQube hoặc Stitch
+  - đồng bộ Issue, comment, Project status, PR và release
+
+workflow:
+  - discover-srs-and-repository
+  - validate-requirements-and-traceability
+  - check-request-fits-approved-stack
+  - design-fe-be-data-api-security
+  - scaffold-or-extend-codebase
+  - implement-vertical-slices
+  - update-prisma-schema-db-push-and-idempotent-seed
+  - run-white-box-tests
+  - run-black-box-api-and-playwright-tests
+  - run-stitch-sonarqube-quality-review
+  - sync-github-project-issue-comments
+  - pull-request-review-and-merge
+  - release-and-operate
+  - close-with-evidence
+
+inputs:
+  required_one_of:
+    - srs_path
+    - github_project_or_issue
+    - approved_blueprint
+    - user_feature_request
+  optional:
+    - existing_repository
+    - stack_decision
+    - deployment_target
+    - mcp_configuration
+    - github_project_configuration
+
+stack_policy:
+  decided_in: docs/DECISIONS.md#D-01
+  backend: NestJS 11 + TypeScript + Prisma 6 + PostgreSQL
+  frontend: React 19 + Vite 8 + TypeScript 6 + react-router-dom 7
+  outside_stack: ask_lead_and_record_decision
+  preserve_existing_stack: true
+  record_as: Decision
+
+repository_mapping:
+  owner: MichaelTran1226
+  default: Racehorse_Training_Management_System_MT_BE
+  be: Racehorse_Training_Management_System_MT_BE
+  fe: Racehorse_Training_Management_System_MT_FE
+  full_stack_policy: record_primary_related_repositories_and_dependencies
+  push_policy:
+    backend_changes_only_to: Racehorse_Training_Management_System_MT_BE
+    frontend_changes_only_to: Racehorse_Training_Management_System_MT_FE
+    verify_remote_before_push: true
+    block_mismatch: true
+    agent_must_not_execute_push: true
+    output_manual_commands: true
+
+coding_standards:
+  follow_existing_conventions: true
+  required_checks:
+    - formatter
+    - linter
+    - typecheck
+    - unit-and-integration-tests
+    - security-and-quality-review
+  forbidden_without_justification:
+    - duplicate_logic
+    - dead_code
+    - magic_values
+    - swallowed_errors
+    - hardcoded_secrets
+    - unexplained_type_escape
+  comments:
+    policy: explain_why_not_what
+    required_for:
+      - business_rules
+      - security_decisions
+      - concurrency_or_transaction_order
+      - non_obvious_sql_or_migrations
+      - library_workarounds
+    not_required_for:
+      - obvious_code
+      - restating_function_names
+
+artifacts:
+  - requirement-traceability.md
+  - stack-decision.md
+  - solution-design.md
+  - prisma/schema.prisma changes (no prisma/migrations/)
+  - prisma/seed.ts (idempotent upsert)
+  - .env.example
+  - API contract with error codes (Swagger /api/docs)
+  - FE mock handler for every new API (src/shared/mock)
+  - unit-and-integration-test-report
+  - black-box-test-report
+  - Playwright screenshot/trace/report
+  - SonarQube quality report
+  - Stitch design/source sync evidence
+  - GitHub Issue/Project/PR/release evidence
+
+quality_gates:
+  - Context Ready
+  - Stack Ready
+  - Solution Ready
+  - Build Ready
+  - White-box Passed
+  - Black-box Passed
+  - Quality Passed
+  - Delivery Complete
+
+policies:
+  database: PostgreSQL via Prisma; schema.prisma is the single source; apply with prisma generate + db push; no migrate dev; seed must be idempotent
+  ci_parity: run the same commands as .github/workflows/ci.yml before reporting done
+  testing_order: white_box_then_black_box
+  secrets: never_print_or_commit
+  github: never_claim_remote_mutation_without_evidence
+  mcp: record_unavailable_or_failed_server_as_blocker_and_use_fallback

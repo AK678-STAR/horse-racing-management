@@ -1,0 +1,390 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { PageHeader } from "@/shared/components/layout/PageHeader";
+import { Button } from "@/shared/components/ui/Button";
+import { Badge } from "@/shared/components/ui/Badge";
+import { Alert } from "@/shared/components/ui/Alert";
+import { HealthBadge } from "@/shared/components/ui/HealthBadge";
+import { Segmented } from "@/shared/components/ui/Segmented";
+import { Select } from "@/shared/components/form/Select";
+import { Checkbox } from "@/shared/components/form/Checkbox";
+import { useCurrentUser } from "@/shared/components/layout/AuthProvider";
+import { messageFor } from "@/shared/lib/messages";
+import { formatDate, formatTime } from "@/shared/lib/format";
+import type { HealthStatus } from "@/shared/types/enums";
+import { getStalls, getZones } from "../api";
+import type { Stall, Zone } from "../types";
+import { GridCell, ZoneGrid, type CellLook } from "../components/ZoneGrid";
+import { AssignStallDialog, ReturnStallDialog, TransferStallDialog } from "../components/StallDialogs";
+import { HEALTH_STATUS } from "@/shared/lib/status";
+import { HORSE_STATUS_COLOR, allocationOf, useStallCounts } from "../stallUtils";
+
+import { tr } from "@/shared/i18n/tr";
+import { useAppLanguage } from "@/shared/lib/language";
+const REFRESH_MS = 60_000;
+
+type Dialog = "assign" | "transfer" | "return" | null;
+
+/** SC-1.04 Sơ đồ chuồng trại: CM, HT, VET, GROOM (OWNER bị chặn ở route và BE). */
+export default function StableMapPage() {
+  useAppLanguage(); // subscribe to language changes so tr() placeholder re-renders
+  const user = useCurrentUser();
+  const canManage = user.role === "CLUB_MANAGER" || user.role === "HEAD_TRAINER";
+  const isGroom = user.role === "GROOM";
+
+  const [zones, setZones] = useState<Zone[] | null>(null);
+  const [zoneId, setZoneId] = useState("");
+  const [stalls, setStalls] = useState<Stall[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [view, setView] = useState<"grid" | "list">("grid");
+  const [onlyMine, setOnlyMine] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<Dialog>(null);
+  const [search, setSearch] = useState("");
+  const [matches, setMatches] = useState<Stall[] | null>(null);
+  const [flashId, setFlashId] = useState<string | null>(null);
+
+  const loadZones = useCallback(() => {
+    getZones()
+      .then((list) => {
+        setZones(list);
+        setZoneId((cur) => cur || list[0]?.id || "");
+        if (list.length === 0) setLoading(false);
+      })
+      .catch((err) => {
+        setError(messageFor(err));
+        setLoading(false);
+      });
+  }, []);
+
+  const loadStalls = useCallback(() => {
+    if (!zoneId) return;
+    setError("");
+    getStalls({ zoneId })
+      .then((list) => {
+        setStalls(list);
+        setUpdatedAt(new Date());
+      })
+      .catch((err) => setError(messageFor(err)))
+      .finally(() => setLoading(false));
+  }, [zoneId]);
+
+  useEffect(loadZones, [loadZones]);
+  useEffect(() => {
+    loadStalls();
+    // Tự làm mới mỗi 60 giây khi tab đang mở.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") loadStalls();
+    }, REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [loadStalls]);
+
+  // Tìm ngựa trên mọi khu: gợi ý, chọn một ngựa -> chuyển sang khu đó, ô nhấp nháy 3 giây.
+  useEffect(() => {
+    const q = search.trim();
+    if (q.length < 2) {
+      setMatches(null);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      getStalls({ search: q })
+        .then((list) => setMatches(list.filter((s) => s.allocations.length > 0)))
+        .catch(() => setMatches([]));
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [search]);
+
+  function jumpTo(stall: Stall) {
+    setSearch("");
+    setMatches(null);
+    if (stall.zoneId && stall.zoneId !== zoneId) setZoneId(stall.zoneId);
+    setSelectedId(stall.id);
+    setFlashId(stall.id);
+    window.setTimeout(() => setFlashId(null), 3000);
+  }
+
+  const zone = zones?.find((z) => z.id === zoneId);
+  const counts = useStallCounts(stalls);
+  const selected = stalls.find((s) => s.id === selectedId) ?? null;
+
+  const isMine = useCallback(
+    (s: Stall) => isGroom && s.allocations.some((a) => a.assignedGroomUserId === user.id),
+    [isGroom, user.id],
+  );
+
+  const lookOf = useCallback(
+    (s: Stall): CellLook => {
+      const a = s.allocations[0];
+      if (a) {
+        const color = HORSE_STATUS_COLOR[a.horse.status] ?? HORSE_STATUS_COLOR.RESTING;
+        return {
+          title: a.horse.name,
+          subtitle: a.horse.horseCode ?? undefined,
+          bg: color.bg,
+          fg: color.fg,
+          locked: !!a.horse.isMedicalLocked,
+          mine: isMine(s),
+          dimmed: onlyMine && !isMine(s),
+          flash: flashId === s.id,
+        };
+      }
+      if (s.status === "MAINTENANCE") return { title: "Maintenance", striped: true, dimmed: onlyMine, flash: flashId === s.id };
+      return { title: "Empty", dashed: true, dimmed: onlyMine, flash: flashId === s.id };
+    },
+    [isMine, onlyMine, flashId],
+  );
+
+  const listRows = useMemo(() => [...stalls].sort((a, b) => a.code.localeCompare(b.code)), [stalls]);
+
+  function closeDialog(changed: boolean) {
+    setDialog(null);
+    if (changed) loadStalls();
+  }
+
+  function renderPanel(s: Stall) {
+    const a = s.allocations[0];
+    const canOpenProfile = !isGroom || isMine(s);
+    const alloc = allocationOf(s);
+    return (
+      <aside
+        style={{
+          width: 320,
+          flexShrink: 0,
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-card, 12px)",
+          padding: 16,
+          display: "grid",
+          gap: 12,
+          alignContent: "start",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h2 style={{ margin: 0, fontSize: "var(--fs-section)" }}>{tr("Stall")}{" "}{s.code}</h2>
+          <Button tone="ghost" size="sm" icon="x" onClick={() => setSelectedId(null)} aria-label={tr("Close panel")} />
+        </div>
+        <div style={{ fontSize: "var(--fs-body)", color: "var(--text-muted)" }}>
+          {tr("Zone {{zone}}", { zone: s.zone })}
+          {s.row && s.col ? tr(" · Row {{row}}, Col {{col}}", { row: s.row, col: s.col }) : ""}
+        </div>
+        {a ? (
+          <>
+            <div>
+              <strong>{a.horse.name}</strong> <span style={{ color: "var(--text-muted)" }}>{a.horse.horseCode}</span>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <HealthBadge status={a.horse.status as HealthStatus} />
+              {a.horse.isMedicalLocked && <Badge tone="danger" icon="lock">{tr("Training Lock")}</Badge>}
+            </div>
+            <div style={{ fontSize: "var(--fs-body)" }}>{tr("Groom:")}{" "}{a.assignedGroom?.fullName ?? "—"}</div>
+            <div style={{ fontSize: "var(--fs-body)" }}>{tr("In this stall since {{date}}", { date: formatDate(a.startDate) })}</div>
+            {canOpenProfile && (
+              <Link to={`/horses/${a.horse.id}`}>
+                <Button tone="secondary" block>{tr("View horse profile")}</Button>
+              </Link>
+            )}
+            {canManage && alloc && (
+              <>
+                <Button tone="ghost" block onClick={() => setDialog("transfer")}>{tr("Move stall")}</Button>
+                <Button tone="danger" block onClick={() => setDialog("return")}>{tr("Release stall")}</Button>
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            <Badge tone={s.status === "MAINTENANCE" ? "warn" : "neutral"}>
+              {s.status === "MAINTENANCE" ? tr("Maintenance") : tr("Empty")}
+            </Badge>
+            {s.notes && <p style={{ margin: 0, fontSize: "var(--fs-body)" }}>{s.notes}</p>}
+            {canManage && s.status === "AVAILABLE" && (
+              <Button block onClick={() => setDialog("assign")}>{tr("Assign a horse")}</Button>
+            )}
+          </>
+        )}
+      </aside>
+    );
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <PageHeader
+        title={tr("Stable map")}
+        description={updatedAt ? tr("Updated at {{time}}", { time: formatTime(updatedAt) }) : undefined}
+        action={
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            {zones && zones.length > 0 && (
+              <div style={{ width: 200 }}>
+                <Select
+                  aria-label={tr("Barn zone")}
+                  value={zoneId}
+                  onChange={(e) => {
+                    setZoneId(e.target.value);
+                    setSelectedId(null);
+                  }}
+                  options={zones.map((z) => ({ value: z.id, label: z.name }))}
+                />
+              </div>
+            )}
+            <div style={{ position: "relative" }}>
+              <input
+                type="search"
+                aria-label={tr("Find a horse on the map")}
+                placeholder={tr("Horse name or code")}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                style={{ height: 38, width: 220, padding: "0 12px", borderRadius: "var(--r)", border: "1px solid var(--border)" }}
+              />
+              {matches && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 4px)",
+                    right: 0,
+                    width: 260,
+                    zIndex: 30,
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--r)",
+                    boxShadow: "0 12px 30px rgba(0,0,0,0.12)",
+                  }}
+                >
+                  {matches.length === 0 ? (
+                    <div style={{ padding: 12, fontSize: "var(--fs-body)" }}>{tr("No horse found on the map.")}</div>
+                  ) : (
+                    matches.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => jumpTo(s)}
+                        style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: 0, background: "none", cursor: "pointer" }}
+                      >
+                        <strong>{s.allocations[0]?.horse.name}</strong> · {s.code} ({s.zone})
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+            <Segmented
+              label={tr("View")}
+              items={[
+                { id: "grid", label: tr("Map") },
+                { id: "list", label: tr("List") },
+              ]}
+              active={view}
+              onChange={setView}
+            />
+          </div>
+        }
+      />
+
+      {error && (
+        <Alert tone="danger" title={tr("Could not load the stable map.")} action={<Button size="sm" onClick={loadStalls}>{tr("Try again")}</Button>}>
+          {error}
+        </Alert>
+      )}
+
+      {zones && zones.length === 0 ? (
+        <div style={{ padding: 40, textAlign: "center", border: "2px dashed var(--border)", borderRadius: "var(--r-lg)" }}>
+          <p>{tr("No barn zones have been set up yet.")}</p>
+          {user.role === "CLUB_MANAGER" && (
+            <Link to="/catalogs/stalls">
+              <Button>{tr("Go to the stall catalogue")}</Button>
+            </Link>
+          )}
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: "var(--fs-body)" }}>
+            <span>{tr("Total stalls:")}{" "}<strong>{counts.total}</strong></span>
+            <span>{tr("Occupied:")}{" "}<strong>{counts.occupied}</strong></span>
+            <span>{tr("Empty:")}{" "}<strong>{counts.free}</strong></span>
+            <span>{tr("Maintenance:")}{" "}<strong>{counts.maintenance}</strong></span>
+            {isGroom && (
+              <Checkbox checked={onlyMine} onChange={setOnlyMine} label={tr("Only my horses")} />
+            )}
+          </div>
+          <ul aria-label={tr("Legend")} style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: "var(--fs-caption)", color: "var(--text-2)", margin: 0, padding: 0, listStyle: "none" }}>
+            {Object.entries(HORSE_STATUS_COLOR).map(([status, c]) => (
+              <li key={status} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: "var(--r-xs)", background: c.bg, boxShadow: `inset 0 0 0 1px ${c.fg}` }} />
+                {HEALTH_STATUS[status as HealthStatus]?.label ? tr(HEALTH_STATUS[status as HealthStatus].label) : status}
+              </li>
+            ))}
+            <li style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: "var(--r-xs)", border: "1px dashed var(--border-field)" }} />
+              {tr("Empty")}
+            </li>
+            <li style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: "var(--r-xs)", border: "2px solid var(--danger)" }} />
+              {tr("Training Lock")}
+            </li>
+          </ul>
+
+          <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {loading ? (
+                <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}>{tr("Loading stable map…")}</div>
+              ) : stalls.length === 0 ? (
+                <div style={{ padding: 40, textAlign: "center", border: "2px dashed var(--border)", borderRadius: "var(--r-lg)" }}>
+                  {tr("This zone has no stalls yet.")}
+                </div>
+              ) : view === "grid" && zone ? (
+                <ZoneGrid
+                  zone={zone}
+                  stalls={stalls}
+                  renderCell={(s) => (
+                    <GridCell code={s.code} look={lookOf(s)} selected={s.id === selectedId} onClick={() => setSelectedId(s.id)} />
+                  )}
+                />
+              ) : (
+                <div style={{ display: "grid", gap: 6 }}>
+                  {listRows.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setSelectedId(s.id)}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        padding: "10px 12px",
+                        borderRadius: "var(--r)",
+                        border: "1px solid var(--border)",
+                        background: s.id === selectedId ? "var(--surface-2)" : "var(--surface)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <strong>{s.code}</strong>
+                      <span>{s.allocations[0]?.horse.name ?? (s.status === "MAINTENANCE" ? tr("Maintenance") : tr("Empty"))}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {selected && renderPanel(selected)}
+          </div>
+        </>
+      )}
+
+      {dialog === "assign" && selected && (
+        <AssignStallDialog stall={selected} onClose={() => closeDialog(false)} onDone={() => closeDialog(true)} />
+      )}
+      {dialog === "transfer" && selected && allocationOf(selected) && (
+        <TransferStallDialog
+          allocation={allocationOf(selected)!}
+          onClose={() => closeDialog(false)}
+          onDone={() => closeDialog(true)}
+        />
+      )}
+      {dialog === "return" && selected && allocationOf(selected) && (
+        <ReturnStallDialog
+          allocation={allocationOf(selected)!}
+          onClose={() => closeDialog(false)}
+          onDone={() => closeDialog(true)}
+        />
+      )}
+    </div>
+  );
+}

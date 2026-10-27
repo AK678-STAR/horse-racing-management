@@ -1,0 +1,17 @@
+/* Panel: nền trắng, viền 1px, bo 10px, không bóng đổ. */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 16px 20px 0; }
+.headText { min-width: 0; }
+.title { margin: 0; font-size: var(--fs-body-lg); line-height: 24px; font-weight: 700; color: var(--text); }
+.subtitle { margin: 2px 0 0; font-size: var(--fs-caption); line-height: 18px; color: var(--muted); }
+.action { flex-shrink: 0; }
+.body { flex: 1; min-width: 0; }
+.foot { padding: 12px 20px; background: var(--surface-2); border-top: 1px solid var(--border); font-size: var(--fs-caption); color: var(--muted); }

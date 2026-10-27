@@ -1,68 +1,70 @@
-# 🐎 Horse Racing & Stable Management System
+# 🐎 Racehorse Training, Care & Tournament Management System (HRSMS)
 > **Academic Capstone Project (SWP391) | FPT University Ho Chi Minh Campus**  
-> An enterprise-grade Web Application designed to digitalize thoroughbred horse pedigree tracking, stable care operations, and tournament race scheduling.
+> An enterprise-grade Full-Stack Web Application designed to digitalize thoroughbred horse pedigree tracking, veterinary care routines, training locks, stable facilities, and tournament race scheduling.
 
-[![Java](https://img.shields.io/badge/Java-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)](https://www.java.com)
-[![SQL Server](https://img.shields.io/badge/SQL_Server-CC292B?style=for-the-badge&logo=microsoftsqlserver&logoColor=white)](https://www.microsoft.com/sql-server)
+[![NestJS](https://img.shields.io/badge/NestJS-E0234E?style=for-the-badge&logo=nestjs&logoColor=white)](https://nestjs.com)
+[![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Prisma](https://img.shields.io/badge/Prisma-2D3748?style=for-the-badge&logo=prisma&logoColor=white)](https://www.prisma.io)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com)
 [![Figma](https://img.shields.io/badge/Figma-F24E1E?style=for-the-badge&logo=figma&logoColor=white)](https://figma.com)
-[![StarUML](https://img.shields.io/badge/StarUML-007ACC?style=for-the-badge)](https://staruml.io)
 
 ---
 
-## 📌 Project Overview
-In traditional equestrian and racing clubs, tracking horse pedigrees, daily health routines, and tournament brackets is often managed through fragmented spreadsheets. This system provides a unified digital platform for **Stable Owners**, **Jockeys**, **Tournament Organizers**, and **Audience/Bettors**.
-
-- **My Role:** **Sub-BrSE / Technical BA & Backend Developer** (Team of 5)
-- **Timeframe:** September 2026 – November 2026
-- **Architecture:** Model-View-Controller (MVC2) with Java Servlet, JSP, JDBC, and MS SQL Server.
-
----
-
-## ✨ Key Features & Functional Modules
-
-### 1. 🧬 Horse & Pedigree Genealogy Management
-- Comprehensive horse profiling: Microchip ID, breed, date of birth, medical history, dietary requirements.
-- Dynamic multi-generational pedigree tree viewer (Sire & Dam line tracking).
-
-### 2. 🏆 Tournament & Race Schedule Organization
-- Automated bracket creation for single-elimination and round-robin race formats.
-- Jockey and horse pairing verification with eligibility status checking.
-- Live race score input and real-time leaderboard updating.
-
-### 3. 🏡 Stable & Daily Care Management
-- Stable allocation, feeder schedules, vaccination logs, and trainer assignments.
-
-### 4. 🔐 Role-Based Access Control (RBAC)
-- **System Admin:** Full administrative control over users, stabling facilities, and system parameters.
-- **Organizer:** Manage tournaments, match fixtures, and verify tournament entries.
-- **Stable Owner:** Register horses, manage internal stable operations, and submit race entries.
+## 📌 Project Architecture
+- **Monorepo Structure:**
+  - `/backend`: NestJS modular micro-service architecture, Prisma ORM, JWT Authentication, RBAC guards, Swagger API docs.
+  - `/frontend`: React 18, Vite, TypeScript, TailwindCSS, Playwright end-to-end testing, responsive design.
+  - `/docs`: Complete Software Requirement Specification (SRS IEEE 830), Role allocations, Bug tracking sheets, and PR handoff documentation.
+- **My Role:** **Sub-BrSE / Technical BA & Full-Stack Developer** (Student ID: SE205302, Team of 5)
+- **Timeframe:** Fall 2026
 
 ---
 
-## 📐 System Modeling & Requirement Artifacts
-- **Software Requirement Specification (SRS):** Full 40+ page IEEE 830 compliant document located in [`/docs/SRS_IEEE830_Horse_Racing.md`](./docs/SRS_IEEE830_Horse_Racing.md).
-- **Core Use Cases:** 12 modeled use cases including `Manage Horse Pedigree`, `Register Tournament Entry`, `Record Race Results`, `Schedule Veterinary Check`.
-- **UI/UX Wireframes:** 15+ high-fidelity interactive screens designed in Figma.
-- **UML Diagrams:** Class diagrams, Sequence diagrams for Tournament Bracket Generation, Activity diagrams for Race Registration.
+## 🌟 Core Domain Modules Implemented
+
+### 1. 🧬 Horse Catalog & Pedigree Tracking (`src/horses`, `src/horse-catalogs`)
+- Thoroughbred profile records: Microchip identification, lineage pedigrees (Sire/Dam multi-generation genealogy tree), biometric attributes, registration statuses.
+- Automated validation for tournament nomination eligibility.
+
+### 2. 🏥 Herd Health, Medical Records & Care Schedules (`src/health`, `src/medical`, `src/nutrition`)
+- Dynamic medical incident logs, vaccination schedules, and dietary nutrition formulas.
+- Automatic **Training Lockouts**: Prevents injured or medicated horses from being nominated into tournament races until verified by veterinary clearance.
+
+### 3. 🏆 Tournament Organization & Match Brackets (`src/tournaments`, `src/simulator`)
+- Tournament fixture management, round-robin & elimination bracket generation.
+- Automated race entry registration, lane allocation draws, and live score recording.
+
+### 4. 🏡 Stables, Facility Stalls & Daily Tasks (`src/stalls`, `src/daily-tasks`, `src/shifts`)
+- Stable stall inventory allocation, staff shift roster scheduling, and routine care task checklists.
+
+### 5. 🔐 Security, Audit Logs & RBAC (`src/auth`, `src/accounts`, `src/audit`)
+- Multi-role authorization: **System Administrator**, **Stable Manager**, **Veterinarian**, **Trainer/Jockey**, and **Tournament Organizer**.
+- Comprehensive audit trails tracking critical record mutations.
 
 ---
 
-## 🗄️ Database Architecture
-- Relational schema designed in **Microsoft SQL Server**, fully normalized to **3NF**.
-- SQL DDL Script available in [`/database/schema.sql`](./database/schema.sql).
-- Key Entities: `Users`, `Roles`, `Stables`, `Horses`, `Pedigrees`, `Jockeys`, `Tournaments`, `RaceRounds`, `RaceEntries`, `RaceResults`.
+## 🚀 Getting Started
+
+### 1. Backend Setup (`/backend`)
+```bash
+cd backend
+npm install
+cp .env.example .env
+npx prisma generate
+npm run start:dev
+```
+
+### 2. Frontend Setup (`/frontend`)
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
 ---
 
-## 🚀 Setup & Execution Guide
-1. **Prerequisites:**
-   - JDK 17 or higher
-   - Apache Tomcat 9.0+
-   - Microsoft SQL Server 2019+
-2. **Database Setup:**
-   - Execute the SQL script in `database/schema.sql` on your SQL Server instance.
-   - Configure your database credentials in `src/main/java/com/horseracing/util/DBContext.java`.
-3. **Run Application:**
-   - Open project in NetBeans / IntelliJ IDEA / Eclipse.
-   - Deploy project onto Apache Tomcat server.
-   - Access web app via `http://localhost:8080/horse-racing-management`.
+## 📄 Team & Documentation
+- **Team Roles & Contributions:** See [`/docs/Le_Minh_Khanh_SE205302_Team_Roles.docx`](./docs/)
+- **Software Requirements Specification (SRS):** See [`/docs/đặc tả.docx`](./docs/)
+- **Bug & QA Test Reports:** See [`/docs/Danh_sach_bug_Cap2.xlsx`](./docs/)

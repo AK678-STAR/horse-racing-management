@@ -1,0 +1,272 @@
+import { HttpException, HttpStatus } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { NotificationCategory, OtpPurpose, Role, UserStatus } from '@prisma/client';
+import { AccountsService } from './accounts.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
+import { AuditService } from '../audit/audit.service';
+import { AuthService } from '../auth/auth.service';
+import { OtpService } from '../auth/otp.service';
+import { NotificationsService } from '../notifications/notifications.service';
+
+describe('AccountsService', () => {
+  const manager = {
+    id: 'viet',
+    fullName: 'Đỗ Quốc Việt',
+    email: 'viet.do@gmail.com',
+    role: Role.CLUB_MANAGER,
+    status: UserStatus.ACTIVE,
+    permissions: null,
+    requestCode: null,
+    statusReason: null,
+  };
+  const actor = { id: 'viet', name: 'Đỗ Quốc Việt' };
+
+  const mockPrisma = {
+    $queryRaw: jest.fn(),
+    user: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...target, ...data })),
+      count: jest.fn(),
+      delete: jest.fn(),
+    },
+    otpCode: { deleteMany: jest.fn() },
+    resetToken: { deleteMany: jest.fn() },
+    loginAttempt: { deleteMany: jest.fn() },
+    $transaction: jest.fn(),
+  };
+  const mockMail = { send: jest.fn() };
+  const mockAudit = { record: jest.fn() };
+  const mockAuth = { revokeAllTokens: jest.fn() };
+  const mockOtp = { issue: jest.fn(), assertCooldown: jest.fn() };
+  const mockNotifications = { notifyUsers: jest.fn().mockResolvedValue(undefined) };
+  const config = { get: jest.fn() } as unknown as ConfigService;
+  let target: Record<string, unknown>;
+  let service: AccountsService;
+
+  const fail = (p: Promise<unknown>) => p.catch((e: HttpException) => e) as Promise<HttpException>;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.$transaction.mockImplementation((work: (tx: unknown) => unknown) =>
+      work(mockPrisma),
+    );
+    service = new AccountsService(
+      mockPrisma as unknown as PrismaService,
+      mockMail as unknown as MailService,
+      mockAudit as unknown as AuditService,
+      mockAuth as unknown as AuthService,
+      mockOtp as unknown as OtpService,
+      config,
+      mockNotifications as unknown as NotificationsService,
+    );
+  });
+
+  const withTarget = (t: Record<string, unknown>) => {
+    target = t;
+    mockPrisma.user.findUnique.mockResolvedValue(t);
+  };
+
+  it('should approve a pending request, mail the owner, notify target user and keep sessions', async () => {
+    withTarget({
+      ...manager,
+      id: 'anh',
+      role: Role.HORSE_OWNER,
+      status: UserStatus.PENDING_APPROVAL,
+    });
+
+    const updated = await service.changeStatus(actor, 'anh', 'approve', {});
+
+    expect(updated.status).toBe(UserStatus.ACTIVE);
+    expect(mockMail.send).toHaveBeenCalled();
+    expect(mockAuth.revokeAllTokens).not.toHaveBeenCalled();
+    expect(mockNotifications.notifyUsers).toHaveBeenCalledWith(
+      ['anh'],
+      expect.objectContaining({
+        type: 'ACCOUNT_STATUS_CHANGED',
+        category: NotificationCategory.ACCOUNT,
+        title: 'Tài khoản đã được phê duyệt',
+      }),
+      'viet',
+    );
+  });
+
+  it('should notify target user on unlock and reactivate, but not on lock', async () => {
+    withTarget({ ...manager, id: 'binh', role: Role.GROOM, status: UserStatus.LOCKED });
+    await service.changeStatus(actor, 'binh', 'unlock', {});
+    expect(mockNotifications.notifyUsers).toHaveBeenCalledWith(
+      ['binh'],
+      expect.objectContaining({
+        type: 'ACCOUNT_STATUS_CHANGED',
+        title: 'Tài khoản đã được mở khóa',
+      }),
+      'viet',
+    );
+
+    mockNotifications.notifyUsers.mockClear();
+    withTarget({ ...manager, id: 'binh', role: Role.GROOM, status: UserStatus.INACTIVE });
+    await service.changeStatus(actor, 'binh', 'reactivate', {});
+    expect(mockNotifications.notifyUsers).toHaveBeenCalledWith(
+      ['binh'],
+      expect.objectContaining({
+        type: 'ACCOUNT_STATUS_CHANGED',
+        title: 'Tài khoản đã được kích hoạt lại',
+      }),
+      'viet',
+    );
+
+    mockNotifications.notifyUsers.mockClear();
+    withTarget({ ...manager, id: 'binh', role: Role.GROOM, status: UserStatus.ACTIVE });
+    await service.changeStatus(actor, 'binh', 'lock', { reason: 'Policy breach' });
+    expect(mockNotifications.notifyUsers).not.toHaveBeenCalled();
+  });
+
+  it('should lock an active account with a reason and sign it out everywhere', async () => {
+    withTarget({ ...manager, id: 'binh', role: Role.GROOM });
+
+    const updated = await service.changeStatus(actor, 'binh', 'lock', {
+      reason: 'Shared password',
+    });
+
+    expect(updated.status).toBe(UserStatus.LOCKED);
+    expect(updated.statusReason).toBe('Shared password');
+    expect(mockAuth.revokeAllTokens).toHaveBeenCalledWith('binh');
+  });
+
+  it('should not let a manager lock their own account', async () => {
+    withTarget(manager);
+    const error = await fail(service.changeStatus(actor, 'viet', 'lock', {}));
+    expect(error.getResponse()).toEqual(expect.objectContaining({ code: 'CANNOT_LOCK_SELF' }));
+  });
+
+  it('should keep at least one active Club Manager', async () => {
+    withTarget({ ...manager, id: 'minh', fullName: 'Mai Quang Minh' });
+    mockPrisma.user.count.mockResolvedValue(1);
+
+    const error = await fail(service.changeStatus(actor, 'minh', 'deactivate', {}));
+    expect(error.getResponse()).toEqual(expect.objectContaining({ code: 'LAST_MANAGER' }));
+  });
+
+  it('should reject an action that does not fit the current status', async () => {
+    withTarget({ ...manager, id: 'ha', role: Role.HORSE_OWNER });
+    const error = await fail(service.changeStatus(actor, 'ha', 'approve', {}));
+    expect(error.getStatus()).toBe(HttpStatus.CONFLICT);
+    expect(error.getResponse()).toEqual(expect.objectContaining({ code: 'INVALID_STATE' }));
+  });
+
+  it('should refuse to hard-delete an account that has been used', async () => {
+    withTarget({ ...manager, id: 'nam', role: Role.HEAD_TRAINER });
+    const error = await fail(service.remove(actor, 'nam'));
+    expect(error.getResponse()).toEqual(expect.objectContaining({ code: 'CANNOT_DELETE_USED' }));
+  });
+
+  it('should invite staff as INVITED and mail an invite code, but never a Horse Owner', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue(null);
+    mockPrisma.user.create.mockImplementation(({ data }) =>
+      Promise.resolve({ id: 'tung', ...data }),
+    );
+
+    const user = await service.invite(actor, {
+      fullName: 'Ngô Thanh Tùng',
+      email: 'tung.ngo@gmail.com',
+      role: 'GROOM',
+    });
+    expect(user.status).toBe(UserStatus.INVITED);
+    expect(user.invitedBy).toBe('Đỗ Quốc Việt');
+    expect(mockOtp.issue).toHaveBeenCalledWith('tung.ngo@gmail.com', OtpPurpose.INVITE, true);
+
+    const error = await fail(
+      service.invite(actor, { fullName: 'X', email: 'x@gmail.com', role: 'HORSE_OWNER' }),
+    );
+    expect(error.getStatus()).toBe(HttpStatus.BAD_REQUEST);
+  });
+
+  it('should count granted and revoked switches when saving permissions', async () => {
+    withTarget({ ...manager, id: 'nam', role: Role.HEAD_TRAINER });
+
+    const result = await service.updatePermissions(actor, 'nam', {
+      viewAudit: true, // bật thêm
+      createPlan: false, // tắt
+    });
+
+    expect(result.granted).toBe(1);
+    expect(result.revoked).toBe(1);
+    expect(mockPrisma.$transaction).toHaveBeenCalledWith(expect.any(Function));
+    expect(mockAudit.record).toHaveBeenCalledWith(
+      actor,
+      'PERMISSIONS_CHANGED',
+      expect.any(String),
+      'nam',
+      expect.objectContaining({ oldValues: expect.any(Object), newValues: expect.any(Object) }),
+      mockPrisma,
+    );
+    expect(mockNotifications.notifyUsers).toHaveBeenCalledWith(
+      ['nam'],
+      expect.objectContaining({
+        type: 'ACCOUNT_PERMISSIONS_CHANGED',
+        category: NotificationCategory.ACCOUNT,
+        params: { granted: 1, revoked: 1 },
+      }),
+      'viet',
+    );
+  });
+
+  it('keeps deleted target identity and audit inside its transaction', async () => {
+    withTarget({ ...manager, id: 'unused', status: UserStatus.INVITED });
+    await service.remove(actor, 'unused');
+    expect(mockPrisma.$transaction).toHaveBeenCalledWith(expect.any(Function));
+    expect(mockAudit.record).toHaveBeenCalledWith(
+      actor,
+      'ACCOUNT_DELETED',
+      expect.any(String),
+      'unused',
+      expect.objectContaining({ oldValues: expect.any(Object) }),
+      mockPrisma,
+    );
+  });
+
+  it('aborts a permission transaction when audit writing fails', async () => {
+    withTarget({ ...manager, id: 'nam', role: Role.HEAD_TRAINER });
+    mockAudit.record.mockRejectedValueOnce(new Error('audit unavailable'));
+    await expect(service.updatePermissions(actor, 'nam', { viewAudit: true })).rejects.toThrow(
+      'audit unavailable',
+    );
+    expect(mockPrisma.$transaction).toHaveBeenCalledWith(expect.any(Function));
+  });
+
+  it('records both sides of a profile edit using the transaction client', async () => {
+    withTarget({ ...manager, id: 'nam', phoneNumber: null });
+    await service.update(actor, 'nam', { fullName: 'New name', phone: '123' });
+    expect(mockAudit.record).toHaveBeenCalledWith(
+      actor,
+      'ACCOUNT_EDITED',
+      expect.any(String),
+      'nam',
+      {
+        oldValues: { fullName: manager.fullName, phoneNumber: null },
+        newValues: { fullName: 'New name', phoneNumber: '123' },
+      },
+      mockPrisma,
+    );
+  });
+
+  it('reads the before-value only after acquiring the account row lock', async () => {
+    withTarget({ ...manager, id: 'nam', phoneNumber: null });
+    mockPrisma.$queryRaw.mockImplementationOnce(() => {
+      // A writer that held the lock before us has just committed.
+      withTarget({ ...manager, id: 'nam', fullName: 'Concurrent name', phoneNumber: null });
+      return Promise.resolve([{ id: 'nam' }]);
+    });
+    await service.update(actor, 'nam', { fullName: 'Final name' });
+    expect(mockAudit.record).toHaveBeenCalledWith(
+      actor,
+      'ACCOUNT_EDITED',
+      expect.any(String),
+      'nam',
+      expect.objectContaining({ oldValues: { fullName: 'Concurrent name', phoneNumber: null } }),
+      mockPrisma,
+    );
+    expect(mockPrisma.$queryRaw).toHaveBeenCalled();
+  });
+});

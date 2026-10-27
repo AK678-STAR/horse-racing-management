@@ -1,0 +1,295 @@
+/* EquiFlow tokens — nguồn: docs/ui-design/DESIGN.md (bản đã duyệt). Đổi giá trị ở đây là đổi toàn app;
+   trong trang/component KHÔNG viết mã màu, cỡ chữ, bo góc trực tiếp — luôn dùng var(--…).
+   Tỉ lệ tương phản WCAG ghi kèm từng cặp (chữ thường cần ≥ 4.5:1, viền control ≥ 3:1). */
+
+/* ============================================================ Màu */
+:root{
+  /* ---- Nền & bề mặt (Quy tắc 60 – 30 – 10) ---- */
+  --page:#F8FAFC;           /* 60% nền toàn trang (Trắng hơi ngả xám Slate 50, giảm chói) */
+  --surface:#FFFFFF;        /* 30% bề mặt: thẻ, bảng, modal, thanh bên */
+  --surface-2:#F1F5F9;      /* tiêu đề bảng, chân thẻ, nền nhạt Slate 100 */
+  --surface-3:#E2E8F0;      /* track segmented, skeleton, ô icon Slate 200 */
+  --surface-table-head:#F8FAFC;
+  --surface-row-hover:#F1F5F9;
+  --border:#E2E8F0;         /* viền thẻ, đường kẻ bảng, dấu phân cách Slate 200 */
+  --border-soft:#F1F5F9;    /* kẻ giữa các hàng */
+  --border-strong:#CBD5E1;  /* viền nút phụ Slate 300 */
+  --border-field:#94A3B8;   /* viền ô nhập — đạt 3.0:1 trên trắng ✓ WCAG 1.4.11 */
+
+  /* ---- Chữ (Chữ chính 17.9:1, Chữ phụ 7.6:1 trên trắng) ---- */
+  --text:#0F172A;           /* Tiêu đề, nội dung, số liệu Slate 900 (tránh đen thuần) */
+  --text-2:#475569;         /* Nhãn, chú thích, văn bản mô tả Slate 600 */
+  --muted:#475569;          /* Ghi chú, metadata Slate 600 */
+  --muted-2:#64748B;        /* Slate 500 */
+  --text-on-brand:#FFFFFF;  /* Chữ trắng trên nền xanh chủ đạo */
+
+  /* ---- Xanh chủ đạo (10% dẫn mắt tới nơi cần bấm) ---- */
+  --brand:#2563EB;          /* Nút chính, liên kết, mục đang chọn, focus ring (Blue 600) */
+  --brand-600:#1D4ED8;      /* Hover/nhấn của nút chính (Blue 700) */
+  --brand-700:#1E40AF;      /* Active sâu (Blue 800) */
+  --brand-100:#DBEAFE;      /* Xanh nền nhạt: hàng chọn, huy hiệu, vùng nhấn nhẹ (Blue 100) */
+  --brand-50:#EFF6FF;       /* Tint xanh rất nhẹ (Blue 50) */
+  --brand-ring:#2563EB;     /* Focus ring dày 2px */
+
+  /* ---- Nhận diện & Logo ---- */
+  --ink:#0F172A;
+  --ink-70:#475569;
+  --accent:#2563EB;
+  --accent-600:#1D4ED8;
+  --accent-100:#DBEAFE;
+  --accent-50:#EFF6FF;
+
+  /* ---- Màu ngữ nghĩa (Trạng thái tách riêng khỏi xanh chủ đạo) ---- */
+  --ok:#15803D;      --ok-bg:#DCFCE7;      /* Thành công: Hoàn tất, đã duyệt — Green 700/100 */
+  --warn:#B45309;    --warn-bg:#FEF3C7;    /* Cảnh báo: Sắp đến hạn, cần chú ý — Amber 700/100 */
+  --danger:#B91C1C;  --danger-bg:#FEE2E2;  /* Lỗi: Thất bại, quá hạn, nguy hiểm — Red 700/100 */
+  --danger-600:#991B1B;
+  --info:#2563EB;    --info-bg:#DBEAFE;    /* Thông báo trung tính */
+  --violet:#7C3AED;  --violet-bg:#EDE9FE;  /* Cách ly dịch bệnh — Violet 700/100 */
+  --slate:#475569;   --slate-bg:#F1F5F9;   /* Nghỉ dưỡng, lưu trữ */
+
+  /* ---- Sức khỏe chiến mã ---- */
+  --health-fit:var(--ok);            --health-fit-bg:var(--ok-bg);
+  --health-watch:var(--warn);        --health-watch-bg:var(--warn-bg);
+  --health-injured:var(--danger);    --health-injured-bg:var(--danger-bg);
+  --health-quarantine:var(--violet); --health-quarantine-bg:var(--violet-bg);
+  --health-empty:var(--muted);       --health-empty-bg:var(--surface-2);
+
+  /* ---- Điều hướng (Sidebar & Topbar) ---- */
+  --nav-bg:#FFFFFF;
+  --nav-bg-2:#FFFFFF;
+  --nav-line:#E2E8F0;
+  --nav-text:#1E293B;         /* Chữ đậm rõ nét Slate 800 */
+  --nav-text-2:#64748B;
+  --nav-item-hover:#F1F5F9;
+  --nav-item-active-bg:#DBEAFE;       /* Xanh nền nhạt */
+  --nav-item-active-text:#1D4ED8;     /* Chữ xanh đậm rõ nét */
+  --nav-item-active-dot:#2563EB;
+  --topbar-bg:#FFFFFF;
+
+  /* ---- Biểu đồ (Xanh chủ đạo chuỗi chính + Cam đối chiếu an toàn mù màu) ---- */
+  --chart-line:#2563EB;
+  --chart-line-muted:#CBD5E1;
+  --chart-bar:#3B82F6;
+  --chart-accent:#EA580C;             /* Cam an toàn mù màu */
+  --chart-grid:#E2E8F0;
+
+  /* ---- Ảnh / lớp phủ ---- */
+  --scrim-banner:linear-gradient(90deg,#1e3a8afa 0%,#1e3a8ae8 28%,#1e3a8a65 58%,#1e3a8a00 80%);
+  --scrim-modal:rgba(15, 23, 42, 0.4);
+  --toast-bg:#0F172A;
+  --toast-border:#0F172A;
+  --toast-text:#F8FAFC;
+  --toast-icon-ok:#4ADE80;
+  --toast-icon-warn:#FBBF24;
+  --toast-icon-danger:#F87171;
+  --toast-icon-info:#60A5FA;
+  --text-on-photo:#FFFFFF;
+  --scrim-photo:#1E3A8A;
+
+  /* ---- Alias tương thích ngược ---- */
+  --text-muted:var(--muted);
+  --text-main:var(--text);
+  --text-strong:var(--text);
+  --ink-muted:var(--muted);
+  --ink-secondary:var(--text-2);
+  --fg:var(--text);
+  --bg:var(--page);
+  --bg-card:var(--surface);
+  --surface-sunken:var(--surface-2);
+  --surface-subtle:var(--surface-2);
+  --border-subtle:var(--border-soft);
+  --brand-surface:var(--brand-50);
+  --brand-border:var(--brand-100);
+  --radius-card:var(--r-lg);
+}
+
+/* ============================================================ Chữ
+   Manrope cho toàn bộ UI; số và mã dùng chữ số đều (font-variant-numeric: tabular-nums).
+   Thang 12 / 14 / 16 / 18 / 22 / 28 / 32 — không dùng cỡ nào khác. */
+:root{
+  --font:'Manrope','Segoe UI',sans-serif;
+  --mono:'Manrope','Segoe UI',sans-serif;  /* @kind font — mã số dùng tabular-nums, không đổi font */
+  --font-numeric:'Manrope','Segoe UI',sans-serif;
+
+  --fs-caption:12px;    /* metadata, tiêu đề cột, badge — nhỏ nhất được phép */
+  --fs-body:14px;       /* chữ thân, ô bảng, input, nút */
+  --fs-base:14px;
+  --fs-body-lg:16px;    /* tiêu đề trạng thái rỗng, câu dẫn */
+  --fs-section:18px;    /* tiêu đề khối */
+  --fs-kpi:22px;        /* số trên thẻ thống kê */
+  --fs-h1:28px;         /* tiêu đề trang */
+  --fs-display:32px;    /* tiêu đề trang đăng nhập */
+  /* tên cũ → thang mới */
+  --fs-eyebrow:var(--fs-caption);
+  --fs-micro:var(--fs-caption);
+  --fs-card-title:var(--fs-body-lg);
+  --fs-panel-title:var(--fs-section);
+  --fs-hero:var(--fs-h1);
+
+  --fw-regular:400;   /* @kind other */
+  --fw-medium:500;    /* @kind other */
+  --fw-semibold:600;  /* @kind other */
+  --fw-bold:700;      /* @kind other */
+  --fw-black:700;     /* @kind other — không dùng 800 */
+
+  --lh-tight:1.3;     /* @kind other */
+  --lh-title:1.3;     /* @kind other */
+  --lh-body:1.57;     /* @kind other — 22/14 */
+  --lh-relaxed:1.7;   /* @kind other */
+
+  --ls-body:0;
+  --ls-h1:-0.01em;
+  --ls-hero:-0.01em;
+  --ls-card-title:0;
+  --ls-eyebrow:0;
+  --ls-table-head:0;
+}
+
+/* ============================================================ Hình khối, khoảng cách, khung */
+:root{
+  /* Bo góc theo DESIGN.md: input 6 · nút 7 · panel 10 */
+  --r-xs:4px;
+  --r-sm:6px;
+  --r:8px;
+  --r-lg:10px;
+  --r-xl:10px;
+  --r-modal:12px;
+  --r-btn:7px;
+  --r-field:6px;
+  --r-pill:999px;
+
+  /* Khoảng cách: bội số của 4 */
+  --sp-1:4px;
+  --sp-2:8px;
+  --sp-3:12px;
+  --sp-4:16px;
+  --sp-5:20px;
+  --sp-6:24px;
+  --sp-7:32px;
+  --sp-8:40px;
+  --gap-grid:20px;
+  --gap-grid-sm:16px;
+
+  /* Khung ứng dụng */
+  --sidebar-w:224px;
+  --sidebar-w-md:224px;
+  --topbar-h:64px;
+  --topbar-h-sm:64px;
+  --content-max:1464px;      /* 1400 nội dung + 2 × 32 padding */
+  --content-pad:28px 32px 40px; /* @kind other */
+  --control-h:44px;          /* nút, input, tab */
+  --control-h-sm:36px;       /* nút trong bảng, thanh lọc */
+  --row-h:56px;              /* hàng bảng */
+
+  /* Bóng đổ: chỉ cho lớp nổi (menu, dialog, toast). Thẻ dùng viền 1px. */
+  --shadow-sm:none;
+  --shadow:none;
+  --shadow-pop:0 8px 24px rgba(32,43,40,.12);
+  --shadow-lg:0 16px 48px rgba(32,43,40,.18);
+  --shadow-primary-hover:none;
+
+  /* Chuyển động: 120–180ms, tắt khi người dùng giảm chuyển động (global.css) */
+  --ease:cubic-bezier(.2,0,0,1); /* @kind other */
+  --dur:.18s;      /* @kind other */
+  --dur-fast:.12s; /* @kind other */
+
+  /* Focus */
+  --focus-ring:2px solid var(--brand-ring); /* @kind other */
+  --focus-offset:2px;
+
+  /* Breakpoint (desktop: 1280 / 1440 / 1920) */
+  --bp-xl:1600px;
+  --bp-lg:1250px;
+  --bp-md:980px;
+  --bp-sm:720px;
+  --bp-xs:390px;
+}
+
+/* ============================================================ Dark mode
+   Bật bằng <html data-theme="dark"> (shared/lib/theme.ts + script trong index.html).
+   Giữ sắc forest, hạ độ sáng nền; chữ trạng thái sáng trên nền tối cùng sắc. Mọi cặp ≥ 4.5:1. */
+[data-theme="dark"],.theme-dark{
+  /* ---- Nền & bề mặt (Xanh navy rất tối Slate 900, không dùng đen thuần #000000) ---- */
+  --page:#0F172A;           /* Nền toàn trang Slate 900 */
+  --surface:#1E293B;        /* Thẻ, bảng, modal, thanh bên Slate 800 (sáng hơn 1 bậc tạo chiều sâu) */
+  --surface-2:#243347;      /* Tiêu đề bảng, nền nhạt phân tầng */
+  --surface-3:#334155;      /* Track segmented, skeleton Slate 700 */
+  --surface-table-head:#1E293B;
+  --surface-row-hover:#26354A;
+  --border:#334155;         /* Viền thẻ, đường kẻ bảng, dấu phân cách Slate 700 */
+  --border-soft:#243347;    /* Kẻ giữa các hàng */
+  --border-strong:#475569;  /* Viền nút phụ Slate 600 */
+  --border-field:#64748B;   /* Viền ô nhập Slate 500 — đạt tương phản WCAG */
+
+  /* ---- Chữ (Chữ chính 14.5:1, Chữ phụ 7.0:1) ---- */
+  --text:#E2E8F0;           /* Tiêu đề, nội dung Slate 200 (trắng ngả xám, tránh trắng thuần) */
+  --text-2:#94A3B8;         /* Nhãn, chú thích, văn bản mô tả Slate 400 */
+  --muted:#94A3B8;          /* Ghi chú, metadata Slate 400 */
+  --muted-2:#64748B;
+  --text-on-brand:#0F172A;  /* Chữ navy đậm trên nền xanh sáng theo tài liệu CTA */
+
+  /* ---- Xanh chủ đạo Dark (Sáng & ít bão hòa hơn bản Light) ---- */
+  --brand:#60A5FA;          /* Nút chính, liên kết, mục đang chọn (Blue 400) */
+  --brand-600:#93C5FD;      /* Trạng thái hover/nhấn của nút chính (Blue 300) */
+  --brand-700:#BFDBFE;      /* Active sâu (Blue 200) */
+  --brand-100:#1E3A8A;      /* Blue 900 */
+  --brand-50:#172554;       /* Xanh nền tối: hàng chọn, huy hiệu, vùng nhấn nhẹ (Blue 950) */
+  --brand-ring:#60A5FA;     /* Focus ring 2px */
+
+  /* ---- Nhận diện & Logo ---- */
+  --ink:#E2E8F0;
+  --ink-70:#94A3B8;
+  --accent:#60A5FA;
+  --accent-600:#93C5FD;
+  --accent-100:#1E3A8A;
+  --accent-50:#172554;
+
+  /* ---- Màu ngữ nghĩa Dark (Tương phản cao trên nền tối) ---- */
+  --ok:#4ADE80;      --ok-bg:#052E16;      /* Thành công: Hoàn tất, đã duyệt — Green 400 / Green 950 */
+  --warn:#FBBF24;    --warn-bg:#451A03;    /* Cảnh báo: Sắp đến hạn, cần chú ý — Amber 400 / Amber 950 */
+  --danger:#F87171;  --danger-bg:#450A0A;  /* Lỗi: Thất bại, quá hạn, nguy hiểm — Red 400 / Red 950 */
+  --danger-600:#FCA5A5;
+  --info:#60A5FA;    --info-bg:#172554;
+  --violet:#C084FC;  --violet-bg:#2E1065;
+  --slate:#94A3B8;   --slate-bg:#1E293B;
+
+  /* ---- Sức khỏe chiến mã ---- */
+  --health-fit:var(--ok);            --health-fit-bg:var(--ok-bg);
+  --health-watch:var(--warn);        --health-watch-bg:var(--warn-bg);
+  --health-injured:var(--danger);    --health-injured-bg:var(--danger-bg);
+  --health-quarantine:var(--violet); --health-quarantine-bg:var(--violet-bg);
+  --health-empty:var(--muted);       --health-empty-bg:var(--surface-2);
+
+  /* ---- Điều hướng (Sidebar & Topbar Dark mode) ---- */
+  --nav-bg:#1E293B;
+  --nav-bg-2:#1E293B;
+  --nav-line:#334155;
+  --nav-text:#FFFFFF;                 /* Trắng sáng đậm nét 100% */
+  --nav-text-2:#CBD5E1;               /* Nhãn nhóm trắng sáng rõ Slate 300 */
+  --nav-item-hover:#283548;
+  --nav-item-active-bg:#172554;       /* Xanh nền tối */
+  --nav-item-active-text:#93C5FD;     /* Chữ xanh sáng nổi bật */
+  --nav-item-active-dot:#60A5FA;
+  --topbar-bg:#1E293B;
+
+  /* ---- Biểu đồ Dark ---- */
+  --chart-line:#60A5FA;
+  --chart-line-muted:#334155;
+  --chart-bar:#3B82F6;
+  --chart-accent:#FB923C;
+  --chart-grid:#334155;
+
+  /* ---- Lớp nổi & Bóng ---- */
+  --scrim-modal:rgba(15, 23, 42, 0.75);
+  --toast-bg:#1E293B;
+  --toast-border:#334155;
+  --toast-text:#E2E8F0;
+  --toast-icon-ok:#4ADE80;
+  --toast-icon-warn:#FBBF24;
+  --toast-icon-danger:#F87171;
+  --toast-icon-info:#60A5FA;
+
+  --shadow-pop:0 8px 24px rgba(0,0,0,.45);
+  --shadow-lg:0 16px 48px rgba(0,0,0,.55);
+}

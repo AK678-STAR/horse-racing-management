@@ -1,0 +1,680 @@
+import { HttpStatus, Injectable } from '@nestjs/common';
+import {
+  HorseCatalogType,
+  HorseStatus,
+  Prisma,
+  Role,
+  StallStatus,
+  UserStatus,
+} from '@prisma/client';
+import { apiError } from '../common/exceptions/api-error';
+import { UserRole } from '../common/enums/role.enum';
+import { CurrentUserPayload } from '../common/decorators/current-user.decorator';
+import { CreateHorseDto } from './dto/create-horse.dto';
+import { UpdateHorseDto } from './dto/update-horse.dto';
+import { QueryHorseDto } from './dto/query-horse.dto';
+import { TransferHorseOwnerDto } from './dto/transfer-owner.dto';
+import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import { CounterService } from '../audit/counter.service';
+import { HorseCatalogsService } from '../horse-catalogs/horse-catalogs.service';
+import { NotificationsService } from '../notifications/notifications.service';
+
+/** Thời gian (ms) cho phép bấm Hoàn tác sau khi xóa. FE hiện nút 10 giây; BE nới 60 giây cho mạng chậm. */
+
+/** P1-07: hồ sơ ngựa — tạo, sửa định danh, chuyển chủ, danh sách, chi tiết (FR-1.01 → FR-1.04, FR-1.16). */
+@Injectable()
+export class HorsesService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+    private readonly counter: CounterService,
+    private readonly catalogs: HorseCatalogsService,
+    private readonly notifications: NotificationsService,
+  ) {}
+
+  /**
+   * Sinh mã ngựa HR-XXXXXX từ bảng Counter (tăng nguyên tử nên 2 người tạo cùng lúc không trùng mã).
+   * Dữ liệu cũ sinh mã bằng "đếm + 1" nên bộ đếm có thể đi sau: gặp mã đã có thì lấy số tiếp theo.
+   */
+  async generateHorseCode(): Promise<string> {
+    for (;;) {
+      const candidate = `HR-${String(await this.counter.next('horse_code')).padStart(6, '0')}`;
+      const taken = await this.prisma.horse.findUnique({ where: { horseCode: candidate } });
+      if (!taken) return candidate;
+    }
+  }
+
+  /**
+   * Tự sinh số microchip 15 chữ số theo chuẩn ISO (bắt đầu bằng 985 + 12 số ngẫu nhiên).
+   */
+  async generateMicrochip(): Promise<string> {
+    for (let attempts = 0; attempts < 100; attempts++) {
+      const random12 = Math.floor(Math.random() * 1e12)
+        .toString()
+        .padStart(12, '0');
+      const candidate = `985${random12}`;
+      const exists = await this.prisma.horse.findFirst({
+        where: { OR: [{ microchip: candidate }, { microchipRfid: candidate }] },
+      });
+      if (!exists) return candidate;
+    }
+    return `985${Date.now().toString().slice(-12)}`;
+  }
+
+  /**
+   * Che giấu số microchip với vai trò GROOM (chỉ hiển thị 4 số cuối).
+   */
+  private maskMicrochip(chip?: string | null): string | null {
+    if (!chip) return null;
+    if (chip.length <= 4) return '****';
+    return '*'.repeat(chip.length - 4) + chip.slice(-4);
+  }
+
+  /**
+   * Áp dụng chính sách bảo mật dữ liệu và che giấu trường nhạy cảm theo vai trò người dùng.
+   */
+  applyRolePolicy(horse: any, user: CurrentUserPayload): any {
+    if (!horse) return horse;
+    const cloned = { ...horse };
+
+    // 1. Che giấu số microchip nếu là GROOM
+    if (user.role === UserRole.GROOM) {
+      if (cloned.microchip) {
+        cloned.microchip = this.maskMicrochip(cloned.microchip);
+      }
+      if (cloned.microchipRfid) {
+        cloned.microchipRfid = this.maskMicrochip(cloned.microchipRfid);
+      }
+    }
+
+    // 2. Ẩn thông tin ô chuồng và người chăm sóc đối với HORSE_OWNER (Flow 1 Section 2)
+    if (user.role === UserRole.HORSE_OWNER) {
+      delete cloned.stallAllocations;
+      cloned.stallCode = null;
+      cloned.zone = null;
+      cloned.primaryGroom = null;
+    } else if (cloned.stallAllocations && cloned.stallAllocations.length > 0) {
+      const activeStall = cloned.stallAllocations.find((a: any) => a.isActive !== false);
+      // Tab 2 cần id phân bổ để Chuyển / Trả ô (BTN-1.14, BTN-1.15).
+      cloned.allocationId = activeStall?.id ?? null;
+      cloned.stallId = activeStall?.stallId ?? activeStall?.stall?.id ?? null;
+      cloned.stallSince = activeStall?.startDate ?? null;
+      cloned.stallCode = activeStall?.stall?.code || null;
+      cloned.zone = activeStall?.stall?.zone || null;
+      cloned.primaryGroom = activeStall?.assignedGroom?.fullName || null;
+    }
+
+    // 3. Ẩn thông tin chủ sở hữu đối với VET và GROOM (CL-1.07)
+    if (user.role === UserRole.VETERINARIAN || user.role === UserRole.GROOM) {
+      delete cloned.owner;
+      cloned.owner = null;
+      cloned.ownerName = null;
+      cloned.ownerId = null;
+    }
+
+    return cloned;
+  }
+
+  /** Ô chuồng phải tồn tại, không bảo trì và chưa có ngựa. Gọi sau khi đã khóa dòng Stall. */
+  private async assertStallFree(tx: Prisma.TransactionClient, stallId: string): Promise<void> {
+    const stall = await tx.stall.findUnique({
+      where: { id: stallId },
+      include: { allocations: { where: { isActive: true }, take: 1 } },
+    });
+    if (!stall) {
+      throw apiError(HttpStatus.NOT_FOUND, 'STALL_NOT_FOUND', 'Không tìm thấy ô chuồng.');
+    }
+    if (stall.status === StallStatus.MAINTENANCE || stall.status === StallStatus.INACTIVE) {
+      throw apiError(
+        HttpStatus.BAD_REQUEST,
+        'STALL_UNAVAILABLE',
+        `Ô chuồng ${stall.code} đang bảo trì hoặc ngừng sử dụng.`,
+      );
+    }
+    if (stall.allocations.length > 0) {
+      throw apiError(HttpStatus.CONFLICT, 'STALL_OCCUPIED', 'Ô chuồng đã có ngựa.');
+    }
+  }
+
+  /**
+   * Tạo hồ sơ ngựa mới (FR-1.01).
+   */
+  async create(dto: CreateHorseDto, user: CurrentUserPayload) {
+    const dob = new Date(dto.dob);
+    const now = new Date();
+    const twelveYearsAgo = new Date();
+    twelveYearsAgo.setFullYear(now.getFullYear() - 12);
+
+    if (dob > now) {
+      throw apiError(
+        HttpStatus.BAD_REQUEST,
+        'INVALID_DOB',
+        'Ngày sinh không được sau ngày hiện tại.',
+      );
+    }
+    if (dob < twelveYearsAgo) {
+      throw apiError(
+        HttpStatus.BAD_REQUEST,
+        'INVALID_DOB',
+        'Tuổi đăng ký của ngựa không được vượt quá 12 tuổi (ngày sinh không sớm hơn 12 năm trước tính đến ngày hiện tại).',
+      );
+    }
+
+    // Kiểm tra trùng tên (không phân biệt chữ hoa/thường)
+    const existingName = await this.prisma.horse.findFirst({
+      where: { name: { equals: dto.name.trim(), mode: 'insensitive' }, deletedAt: null },
+    });
+    if (existingName) {
+      throw apiError(HttpStatus.CONFLICT, 'DUPLICATE_NAME', 'Tên ngựa đã tồn tại trong hệ thống.');
+    }
+
+    // Tự sinh số microchip nếu không cung cấp hoặc để trống
+    let microchip = dto.microchip?.trim();
+    if (!microchip) {
+      microchip = await this.generateMicrochip();
+    } else {
+      // Kiểm tra trùng số microchip
+      const existingChip = await this.prisma.horse.findFirst({
+        where: {
+          OR: [{ microchip }, { microchipRfid: microchip }],
+        },
+      });
+      if (existingChip) {
+        throw apiError(
+          HttpStatus.CONFLICT,
+          'DUPLICATE_MICROCHIP',
+          existingChip.deletedAt
+            ? 'Số microchip thuộc một hồ sơ trong mục Hồ sơ đã xóa. Hãy khôi phục hồ sơ đó thay vì tạo mới.'
+            : 'Số microchip đã được gán cho ngựa khác.',
+        );
+      }
+    }
+
+    const breed = await this.catalogs.resolveName(HorseCatalogType.BREED, dto.breed);
+    const color = await this.catalogs.resolveName(HorseCatalogType.COLOR, dto.color);
+    const horseCode = await this.generateHorseCode();
+    const microchipRfid = microchip;
+
+    // Hồ sơ mới luôn ở Nghỉ ngơi. Nếu chọn ô chuồng ngay khi tạo: khóa dòng ô (FOR UPDATE),
+    // kiểm ô còn trống rồi đặt OCCUPIED, tất cả trong một transaction -> 2 người không gán trùng 1 ô.
+    const horse = await this.prisma.$transaction(async (tx) => {
+      if (dto.stallId) {
+        await tx.$queryRaw`SELECT "id" FROM "Stall" WHERE "id" = ${dto.stallId} FOR UPDATE`;
+        await this.assertStallFree(tx, dto.stallId);
+      }
+
+      const created = await tx.horse.create({
+        data: {
+          horseCode,
+          name: dto.name.trim(),
+          breed,
+          dob,
+          gender: dto.gender,
+          color,
+          weightKg: dto.weightKg != null ? Number(dto.weightKg) : null,
+          microchip,
+          microchipRfid,
+          status: HorseStatus.RESTING,
+          isMedicalLocked: false,
+          ownerId: dto.ownerId || null,
+          avatarUrl: dto.avatarUrl || null,
+          ...(dto.stallId
+            ? {
+                stallAllocations: {
+                  create: {
+                    stallId: dto.stallId,
+                    startDate: now,
+                    isActive: true,
+                  },
+                },
+              }
+            : {}),
+        },
+        include: {
+          owner: { select: { id: true, fullName: true, email: true } },
+          stallAllocations: {
+            where: { isActive: true },
+            include: { stall: true, assignedGroom: { select: { id: true, fullName: true } } },
+          },
+        },
+      });
+
+      if (dto.stallId) {
+        await tx.stall.update({
+          where: { id: dto.stallId },
+          data: { status: StallStatus.OCCUPIED },
+        });
+      }
+      return created;
+    });
+
+    await this.auditService.record(
+      { id: user.userId, name: user.fullName || user.email },
+      'HORSE_CREATED',
+      `Tạo mới hồ sơ ngựa ${horse.name} (${horse.horseCode})`,
+      horse.id,
+      {
+        entityName: 'Horse',
+        newValues: { name: horse.name, horseCode: horse.horseCode, status: horse.status },
+      },
+    );
+
+    return this.applyRolePolicy(horse, user);
+  }
+
+  /**
+   * Cập nhật thông tin định danh hồ sơ ngựa (FR-1.02).
+   */
+  async update(id: string, dto: UpdateHorseDto, user: CurrentUserPayload) {
+    const horse = await this.prisma.horse.findUnique({
+      where: { id, deletedAt: null },
+      include: {
+        stallAllocations: { where: { isActive: true } },
+      },
+    });
+
+    if (!horse) {
+      throw apiError(HttpStatus.NOT_FOUND, 'HORSE_NOT_FOUND', 'Không tìm thấy hồ sơ ngựa.');
+    }
+
+    if (horse.status === HorseStatus.RETIRED) {
+      throw apiError(
+        HttpStatus.BAD_REQUEST,
+        'HORSE_RETIRED',
+        'Ngựa đã ngừng quản lý. Vui lòng kích hoạt lại trước khi thao tác.',
+      );
+    }
+
+    // Chỉ kiểm tuổi khi đổi ngày sinh: ngựa đã có hồ sơ từ trước vẫn sửa được thông tin khác.
+    const dobChanged = !!dto.dob && new Date(dto.dob).getTime() !== horse.dob.getTime();
+    if (dto.dob && dobChanged) {
+      const dob = new Date(dto.dob);
+      const now = new Date();
+      const twelveYearsAgo = new Date();
+      twelveYearsAgo.setFullYear(now.getFullYear() - 12);
+
+      if (dob > now) {
+        throw apiError(
+          HttpStatus.BAD_REQUEST,
+          'INVALID_DOB',
+          'Ngày sinh không được sau ngày hiện tại.',
+        );
+      }
+      if (dob < twelveYearsAgo) {
+        throw apiError(
+          HttpStatus.BAD_REQUEST,
+          'INVALID_DOB',
+          'Tuổi của ngựa không được vượt quá 12 tuổi (ngày sinh không sớm hơn 12 năm trước tính đến ngày hiện tại).',
+        );
+      }
+    }
+
+    if (dto.name && dto.name.trim().toLowerCase() !== horse.name.toLowerCase()) {
+      const existingName = await this.prisma.horse.findFirst({
+        where: {
+          name: { equals: dto.name.trim(), mode: 'insensitive' },
+          id: { not: id },
+          deletedAt: null,
+        },
+      });
+      if (existingName) {
+        throw apiError(
+          HttpStatus.CONFLICT,
+          'DUPLICATE_NAME',
+          'Tên ngựa đã tồn tại trong hệ thống.',
+        );
+      }
+    }
+
+    if (dto.microchip && dto.microchip !== horse.microchip) {
+      const existingChip = await this.prisma.horse.findFirst({
+        where: {
+          OR: [{ microchip: dto.microchip }, { microchipRfid: dto.microchip }],
+          id: { not: id },
+        },
+      });
+      if (existingChip) {
+        throw apiError(
+          HttpStatus.CONFLICT,
+          'DUPLICATE_MICROCHIP',
+          'Số microchip đã được gán cho ngựa khác.',
+        );
+      }
+    }
+
+    const breed = dto.breed
+      ? await this.catalogs.resolveName(HorseCatalogType.BREED, dto.breed, horse.breed)
+      : undefined;
+    const color = dto.color
+      ? await this.catalogs.resolveName(HorseCatalogType.COLOR, dto.color, horse.color)
+      : undefined;
+
+    if (dto.ownerId) {
+      const owner = await this.prisma.user.findUnique({ where: { id: dto.ownerId } });
+      if (!owner || owner.role !== Role.HORSE_OWNER) {
+        throw apiError(
+          HttpStatus.BAD_REQUEST,
+          'INVALID_OWNER',
+          'The specified owner does not exist or does not hold the Horse Owner role.',
+        );
+      }
+    }
+
+    const updated = await this.prisma.horse.update({
+      where: { id },
+      data: {
+        ...(dto.name ? { name: dto.name.trim() } : {}),
+        ...(breed ? { breed } : {}),
+        ...(dto.dob ? { dob: new Date(dto.dob) } : {}),
+        ...(dto.gender ? { gender: dto.gender } : {}),
+        ...(color ? { color } : {}),
+        ...(dto.weightKg !== undefined
+          ? { weightKg: dto.weightKg != null ? Number(dto.weightKg) : null }
+          : {}),
+        ...(dto.microchip
+          ? {
+              microchip: dto.microchip,
+              microchipRfid: dto.microchip,
+            }
+          : {}),
+        ...(dto.ownerId !== undefined ? { ownerId: dto.ownerId || null } : {}),
+        ...(dto.avatarUrl !== undefined ? { avatarUrl: dto.avatarUrl } : {}),
+      },
+      include: {
+        owner: { select: { id: true, fullName: true, email: true } },
+        stallAllocations: {
+          where: { isActive: true },
+          include: { stall: true, assignedGroom: { select: { id: true, fullName: true } } },
+        },
+      },
+    });
+
+    await this.auditService.record(
+      { id: user.userId, name: user.fullName || user.email },
+      'HORSE_UPDATED',
+      `Updated identification record for horse ${updated.name} (${updated.horseCode || updated.id})`,
+      updated.id,
+      {
+        entityName: 'Horse',
+        oldValues: { name: horse.name, status: horse.status, microchip: horse.microchip },
+        newValues: { name: updated.name, status: updated.status, microchip: updated.microchip },
+      },
+    );
+
+    return this.applyRolePolicy(updated, user);
+  }
+
+  /**
+   * Chuyển quyền sở hữu ngựa sang chủ mới (FR-1.02, Flow 1 Governance).
+   * Chỉ Club Manager được phép thực hiện.
+   */
+  async transferOwner(id: string, dto: TransferHorseOwnerDto, user: CurrentUserPayload) {
+    const horse = await this.prisma.horse.findUnique({
+      where: { id, deletedAt: null },
+      include: {
+        owner: { select: { id: true, fullName: true, email: true } },
+      },
+    });
+
+    if (!horse) {
+      throw apiError(HttpStatus.NOT_FOUND, 'HORSE_NOT_FOUND', 'Horse profile not found.');
+    }
+
+    if (horse.status === HorseStatus.RETIRED) {
+      throw apiError(
+        HttpStatus.BAD_REQUEST,
+        'HORSE_RETIRED',
+        'Cannot transfer ownership of a retired horse. Please reactivate the horse profile first.',
+      );
+    }
+
+    if (horse.ownerId === dto.newOwnerId) {
+      throw apiError(
+        HttpStatus.BAD_REQUEST,
+        'ALREADY_OWNED',
+        'Horse is already assigned to this owner.',
+      );
+    }
+
+    const newOwner = await this.prisma.user.findUnique({
+      where: { id: dto.newOwnerId },
+      select: { id: true, fullName: true, email: true, role: true, status: true },
+    });
+
+    if (!newOwner || newOwner.role !== Role.HORSE_OWNER) {
+      throw apiError(
+        HttpStatus.BAD_REQUEST,
+        'INVALID_NEW_OWNER',
+        'The specified account does not exist or is not registered as a Horse Owner.',
+      );
+    }
+
+    if (newOwner.status !== UserStatus.ACTIVE) {
+      throw apiError(
+        HttpStatus.BAD_REQUEST,
+        'INACTIVE_OWNER',
+        'New owner account is not currently active.',
+      );
+    }
+
+    const previousOwnerName = horse.owner ? horse.owner.fullName : 'Unassigned';
+
+    const updated = await this.prisma.horse.update({
+      where: { id },
+      data: {
+        ownerId: newOwner.id,
+      },
+      include: {
+        owner: { select: { id: true, fullName: true, email: true } },
+        stallAllocations: {
+          where: { isActive: true },
+          include: { stall: true, assignedGroom: { select: { id: true, fullName: true } } },
+        },
+      },
+    });
+
+    await this.auditService.record(
+      { id: user.userId, name: user.fullName || user.email },
+      'HORSE_OWNERSHIP_TRANSFERRED',
+      `Transferred ownership of horse ${horse.name} (${horse.horseCode || horse.id}) from ${previousOwnerName} to ${newOwner.fullName}. Reason: ${dto.reason || 'None specified'}`,
+      horse.id,
+      {
+        entityName: 'Horse',
+        oldValues: { ownerId: horse.ownerId, ownerName: previousOwnerName },
+        newValues: { ownerId: newOwner.id, ownerName: newOwner.fullName, reason: dto.reason },
+      },
+    );
+    await this.notifications.notifyUsers([newOwner.id], {
+      type: 'HORSE_OWNER_ASSIGNED',
+      category: 'HORSE',
+      title: 'A horse was assigned to you',
+      message: `You are now the registered owner of ${horse.name}.`,
+      params: { horse: horse.name },
+      link: `/horses/${horse.id}`,
+      senderName: user.fullName,
+    });
+
+    return this.applyRolePolicy(updated, user);
+  }
+
+  /**
+   * Tra cứu danh sách hồ sơ ngựa có tìm kiếm, lọc, sắp xếp, phân trang (FR-1.03).
+   */
+  async findAll(query: QueryHorseDto, user: CurrentUserPayload) {
+    const {
+      search,
+      status,
+      isMedicalLocked,
+      breed,
+      gender,
+      sortBy = 'name',
+      sortOrder = 'asc',
+      page = 1,
+      limit = 20,
+    } = query;
+
+    // Hồ sơ đã xóa mềm chỉ xem ở GET /horses/deleted.
+    const where: Prisma.HorseWhereInput = { deletedAt: null };
+
+    // Phân quyền phạm vi dữ liệu:
+    if (user.role === UserRole.HORSE_OWNER) {
+      where.ownerId = user.userId;
+    } else if (user.role === UserRole.GROOM) {
+      where.stallAllocations = {
+        some: {
+          assignedGroomUserId: user.userId,
+          isActive: true,
+        },
+      };
+    }
+
+    // Bộ lọc tìm kiếm tự do (Tên, Mã ngựa, Microchip, RFID)
+    if (search && search.trim()) {
+      const q = search.trim();
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { horseCode: { contains: q, mode: 'insensitive' } },
+        { microchip: { contains: q, mode: 'insensitive' } },
+        { microchipRfid: { contains: q, mode: 'insensitive' } },
+        { breed: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
+    // Bộ lọc trạng thái
+    if (status && status !== 'ALL') {
+      const statuses = status
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => Object.values(HorseStatus).includes(s as HorseStatus)) as HorseStatus[];
+
+      if (statuses.length === 1) {
+        where.status = statuses[0];
+      } else if (statuses.length > 1) {
+        where.status = { in: statuses };
+      }
+    }
+
+    // Bộ lọc khóa y tế
+    if (isMedicalLocked !== undefined && isMedicalLocked !== '') {
+      where.isMedicalLocked = isMedicalLocked === 'true';
+    }
+
+    // DL-1.02 / SC-1.01 "Chưa có ô chuồng" (chỉ nhân sự nội bộ quản lý chuồng; GROOM đã lọc theo ô ở trên)
+    if (
+      query.noStall === 'true' &&
+      user.role !== UserRole.GROOM &&
+      user.role !== UserRole.HORSE_OWNER
+    ) {
+      where.stallAllocations = { none: { isActive: true } };
+    }
+
+    // Bộ lọc giống và giới tính
+    if (breed && breed !== 'ALL') {
+      where.breed = { equals: breed, mode: 'insensitive' };
+    }
+    if (gender && gender !== 'ALL') {
+      where.gender = { equals: gender, mode: 'insensitive' };
+    }
+
+    // Sắp xếp
+    let orderBy: Prisma.HorseOrderByWithRelationInput = { name: sortOrder };
+    if (sortBy === 'horseCode') {
+      orderBy = { horseCode: sortOrder };
+    } else if (sortBy === 'status') {
+      orderBy = { status: sortOrder };
+    } else if (sortBy === 'dob') {
+      orderBy = { dob: sortOrder };
+    } else if (sortBy === 'createdAt') {
+      orderBy = { createdAt: sortOrder };
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [horses, total] = await Promise.all([
+      this.prisma.horse.findMany({
+        where,
+        orderBy,
+        skip,
+        take: limit,
+        include: {
+          owner: { select: { id: true, fullName: true, email: true } },
+          stallAllocations: {
+            where: { isActive: true },
+            include: { stall: true, assignedGroom: { select: { id: true, fullName: true } } },
+          },
+          medicalLocks: {
+            where: { isLocked: true },
+            take: 1,
+            select: { id: true, isLocked: true, lockReason: true, lockedAt: true },
+          },
+        },
+      }),
+      this.prisma.horse.count({ where }),
+    ]);
+
+    const items = horses.map((h) => this.applyRolePolicy(h, user));
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  /**
+   * Xem chi tiết hồ sơ ngựa theo ID (FR-1.04).
+   */
+  async findOne(id: string, user: CurrentUserPayload) {
+    const horse = await this.prisma.horse.findUnique({
+      where: { id, deletedAt: null },
+      include: {
+        owner: { select: { id: true, fullName: true, email: true } },
+        stallAllocations: {
+          where: { isActive: true },
+          include: { stall: true, assignedGroom: { select: { id: true, fullName: true } } },
+        },
+        medicalLocks: {
+          where: { isLocked: true },
+          include: { veterinarian: { select: { id: true, fullName: true } } },
+          take: 1,
+        },
+      },
+    });
+
+    if (!horse) {
+      throw apiError(
+        HttpStatus.NOT_FOUND,
+        'HORSE_NOT_FOUND',
+        'Không tìm thấy hồ sơ ngựa hoặc bạn không có quyền xem.',
+      );
+    }
+
+    // Kiểm tra phạm vi dữ liệu đối với OWNER và GROOM
+    if (user.role === UserRole.HORSE_OWNER && horse.ownerId !== user.userId) {
+      throw apiError(
+        HttpStatus.NOT_FOUND,
+        'HORSE_NOT_FOUND',
+        'Không tìm thấy hồ sơ ngựa hoặc bạn không có quyền xem.',
+      );
+    }
+
+    if (user.role === UserRole.GROOM) {
+      const allocations = (horse as any).stallAllocations || [];
+      const isAssigned = allocations.some(
+        (a: any) => a.assignedGroomUserId === user.userId && a.isActive,
+      );
+      if (!isAssigned) {
+        throw apiError(
+          HttpStatus.NOT_FOUND,
+          'HORSE_NOT_FOUND',
+          'Không tìm thấy hồ sơ ngựa hoặc bạn không có quyền xem.',
+        );
+      }
+    }
+
+    return this.applyRolePolicy(horse, user);
+  }
+}

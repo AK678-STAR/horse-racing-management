@@ -1,0 +1,334 @@
+﻿EQUIFLOW (TMEC) · SWP391 · TÀI LIỆU ĐẶC TẢ LUỒNG HOẠT ĐỘNG
+ĐẶC TẢ LUỒNG HOẠT ĐỘNG LIÊN HOÀN & BẢNG KHẢO SÁT CHỐT QUY TRÌNH (FLOW 2 - 3 - 4 - 5)
+Tập trung 100% vào Trình tự Hành động (Workflow / Activity Sequence) phục vụ dựng Mô hình Giả lập Sự kiện (Event-driven Simulation) và Gửi khảo sát đọc hiểu tới Dũng & Khánh.
+Hạng mục
+	Nội dung & Phân công nhiệm vụ
+	Mục tiêu cốt lõi
+	Làm rõ trình tự hoạt động từng bước (Ai làm gì? Hệ thống phản hồi gì? Bắn tín hiệu sang ai? Xử lý tiếp theo ra sao?) giữa 5 vai trò (Groom, Vet, Trainer, Owner, Manager).
+	Phần 1: Y tế & Huấn luyện
+	Khớp nối luồng tương tác 2 chiều giữa Y tế (Dũng) và Huấn luyện (Khánh). Trọng tâm là sự cố ngựa chấn thương, Khóa y tế (Medical Lock) và phục hồi.
+	Phần 2: Chuồng trại & Thi đấu
+	Làm rõ luồng vận hành của Flow 4 (Ca trực, Khẩu phần, Checklist, Tồn kho) và Flow 5 (Giải đua, Tuyển chọn ngựa, Kết quả, Tài chính Owner).
+	Hình thức làm việc nhóm
+	Gửi file này cho Dũng & Khánh. Hai bạn đọc kỹ luồng hoạt động và điền trực tiếp vào Form List để thống nhất trước khi code mô hình giả lập.
+	 
+PHẦN 1: LUỒNG HOẠT ĐỘNG LIÊN HOÀN GIỮA Y TẾ (DŨNG) & HUẤN LUYỆN (KHÁNH)
+Mô hình giả lập hoạt động theo cơ chế hướng sự kiện (Event-Driven Simulation). Mỗi hành động của một vai trò sẽ kích hoạt thay đổi trạng thái trong CSDL và gửi thông báo/nhiệm vụ sang vai trò kế tiếp. Dưới đây là luồng hoạt động từng bước từ khi phát hiện dấu hiệu bất thường đến khi ngựa trở lại đường chạy:
+Bước
+	Vai trò thực hiện
+	Hành động trên Hệ thống
+	Hệ thống tự động xử lý gì?
+	Chuyển tiếp cho ai?
+	1
+	Groom
+(Nhân viên chăm sóc)
+	Trong ca trực, Groom phát hiện ngựa có dấu hiệu lạ (bỏ ăn, thân nhiệt nóng, đi khập khiễng). Groom mở màn hình 'Ghi chú quan sát' (SC-4.04), chọn mã ngựa, nhập triệu chứng và bấm Gửi.
+	1. Lưu nhật ký sức khỏe vào bảng HealthObservation.
+2. Phát sinh Event: HEALTH_ANOMALY_LOGGED.
+3. Tạo Notification khẩn cấp có badge đỏ gửi đến VET và Trainer phụ trách.
+	Bác sĩ thú y (VET - Dũng)
+và Huấn luyện viên (HT - Khánh)
+	2
+	Bác sĩ thú y
+(VET - Dũng)
+	VET nhận thông báo, đến ô chuồng kiểm tra thực tế. Sau đó mở màn hình 'Tạo bệnh án' (SC-3.04), chọn ngựa, nhập chỉ số sinh tồn (Vitals), chẩn đoán sơ bộ và đánh dấu chấn thương 2D.
+	1. Tạo bản ghi MedicalRecord (trạng thái OPEN).
+2. Kiểm tra các chỉ số sinh tồn xem có vượt ngưỡng cảnh báo hay không.
+3. Hiển thị gợi ý: 'Khuyến nghị kích hoạt Khóa huấn luyện'.
+	VET quyết định bước tiếp theo
+	3
+	Bác sĩ thú y
+(VET - Dũng)
+	Nếu chấn thương mức độ vừa đến nặng, VET bấm nút 'Đặt Khóa huấn luyện' (Medical Lock - SC-3.06), chọn mức độ nghiêm trọng, lý do khóa và chọn Ngày xem xét lại (Review Date).
+	1. Luật RULE-MED-01 kích hoạt ngay lập tức.
+2. Cập nhật Horse.status = 'INJURED' (Chấn thương) hoặc 'UNDER_OBSERVATION' (Cần theo dõi).
+3. Bật cờ isMedicalLocked = true.
+4. Tự động tìm và HỦY BỎ/ĐÓNG BĂNG tất cả các buổi tập nặng (Gallop/Sprint) đã lên lịch trong tương lai.
+5. Chặn tuyệt đối nút đăng ký thi đấu giải của con ngựa này.
+	Huấn luyện viên (HT - Khánh)
+và Quản lý (CM)
+	4
+	Bác sĩ thú y
+(VET - Dũng)
+	VET thiết lập Phác đồ điều trị và Kê đơn thuốc (AddPrescriptionModal): Nhập tên thuốc, liều dùng, đường dùng, số ngày điều trị, và thời gian ngưng thuốc trước giải (Withdrawal Days).
+	1. Lưu thông tin đơn thuốc và hướng dẫn chăm sóc.
+2. Tự động sinh ra các Task chăm sóc y tế (ví dụ: 'Cho uống thuốc 08:00', 'Chườm đá khớp 14:00') vào Checklist hàng ngày của Groom phụ trách khu chuồng đó (Flow 4).
+	Groom phụ trách ô chuồng
+(Flow 4)
+	5
+	Huấn luyện viên
+(HT - Khánh)
+	HT nhận thông báo Medical Lock. Mở màn hình Lịch tập (SC-2.03) thấy ngựa bị gắn huy hiệu đỏ 'Đang khóa y tế'. HT không thể xếp bài tập nặng, chỉ có thể xếp bài đi dạo (Walking) nếu VET cho phép.
+	1. Hệ thống từ chối nếu HT cố tình xếp bài tập nặng (trả về lỗi MEDICAL_LOCK_ACTIVE).
+2. Cho phép HT cập nhật lại kế hoạch huấn luyện dài hạn của ngựa (dời mục tiêu giải đua).
+	Lịch tập chuyển sang chế độ phục hồi
+	6
+	Groom
+(Chăm sóc hàng ngày)
+	Groom mở điện thoại/máy tính bảng xem Checklist ca trực. Thấy xuất hiện thêm các task y tế của ngựa bệnh. Groom cho ngựa uống thuốc, ngâm chân và bấm 'Xác nhận hoàn thành' (Check).
+	1. Ghi nhận thời gian và người thực hiện task y tế.
+2. Hệ thống tự động trừ số lượng thuốc/vật tư tương ứng trong kho vật tư khu chuồng (Flow 4).
+	VET & HT theo dõi tiến độ
+	7
+	Bác sĩ thú y
+(VET - Dũng)
+	Đến hạn Review Date hoặc hết liệu trình điều trị, VET tái khám. Nếu ngựa đã lành lặn, VET mở modal Đóng bệnh án, nhập 'Kết luận điều trị' và bấm 'Xác nhận Gỡ Khóa Huấn Luyện'.
+	1. Cập nhật MedicalRecord.status = 'CLOSED'.
+2. Cập nhật Horse.isMedicalLocked = false.
+3. Chuyển trạng thái ngựa Horse.status = 'RESTING' (Nghỉ ngơi) hoặc 'ACTIVE' (Tập luyện).
+4. Bắn Notification thông báo cho HT: 'Ngựa đã được mở khóa y tế, sẵn sàng tập lại'.
+	Huấn luyện viên (HT - Khánh)
+	8
+	Huấn luyện viên
+(HT - Khánh)
+	HT tiếp nhận thông báo gỡ khóa. HT xếp giáo án phục hồi thể lực tăng dần (Đi bộ -> Đi kiệu -> Phi chậm). Sau 1-2 tuần theo dõi chỉ số tải ACWR ổn định, HT đưa ngựa sang giai đoạn Sẵn sàng thi đấu.
+	1. Cho phép xếp lại bài tập bình thường.
+2. Hệ thống tính toán chỉ số tích lũy thể lực và bắt đầu đếm ngược thời gian ngưng thuốc (Withdrawal period) để chuẩn bị cho Flow 5.
+	Đủ điều kiện chuyển sang Flow 5
+	 
+PHẦN 2: LUỒNG HOẠT ĐỘNG CỦA FLOW 4 (CHUỒNG TRẠI) VÀ FLOW 5 (THI ĐẤU)
+Hai luồng này mở rộng nghiệp vụ vận hành toàn diện cho trại ngựa. Dưới đây là các luồng hoạt động chuẩn hóa theo từng phân hệ:
+2.1 Luồng hoạt động Flow 4: Chăm sóc chuồng trại, Dinh dưỡng & Tồn kho (Dũng phụ trách)
+Luồng A: Quản lý Ca trực & Checklist công việc của Groom
+Bước
+	Ai thực hiện?
+	Hành động & Giao diện
+	Hệ thống xử lý & Chuyển tiếp
+	1
+	Club Manager
+(CM)
+	Đầu tuần, CM mở 'Phân ca trực' (SC-4.02), chọn Khu chuồng (Block A, B, C), phân công Groom theo 3 ca (Sáng, Chiều, Tối). Có thể bấm 'Sao chép tuần trước'.
+	Hệ thống kiểm tra chống trùng lịch, lưu bảng ShiftAllocation, tạo ca trực cho từng Groom.
+	2
+	Groom
+	Đầu ca, Groom mở app xem 'Ca trực của tôi' và 'Checklist công việc' (SC-4.03). Checklist gồm: 1) Việc định kỳ (Cho ăn, dọn phân, tắm); 2) Việc y tế sinh từ Vet; 3) Việc dắt ngựa ra sân tập.
+	Checklist được tổng hợp tự động từ 3 nguồn: Lịch sinh hoạt mẫu (Flow 1) + Đơn thuốc (Flow 3) + Lịch tập luyện (Flow 2).
+	3
+	Groom
+	Làm xong việc nào, Groom bấm 'Hoàn thành' (Checkbox) việc đó trên điện thoại. Nếu có sự cố (ngựa ốm, chuồng hỏng), Groom bấm 'Ghi chú quan sát' (SC-4.04).
+	Lưu timestamp, đổi màu xanh hoàn thành. Nếu có ghi chú bất thường -> Bắn thông báo ngay cho VET và HT.
+	4
+	Groom / CM
+	Cuối ca, Groom bàn giao các việc chưa làm được (nếu có). CM có thể 'Giao lại công việc' (Reassign) cho Groom ca sau nếu có người đột xuất vắng mặt.
+	Hệ thống cập nhật người chịu trách nhiệm mới, ghi Audit Log điều chuyển.
+	 
+Luồng B: Vòng đời Khẩu phần ăn (Diet Lifecycle: Đề xuất -> Phê duyệt -> Cung cấp)
+Bước
+	Ai thực hiện?
+	Hành động & Giao diện
+	Hệ thống xử lý & Chuyển tiếp
+	1
+	Huấn luyện viên
+(HT - Khánh)
+	Căn cứ thể trạng và cường độ tập của ngựa, HT mở 'Khẩu phần dinh dưỡng' (SC-4.01), chọn con ngựa, chọn loại thức ăn (cỏ khô, cám yến mạch, vitamin, điện giải...), nhập định lượng từng bữa rồi bấm 'Gửi phê duyệt'.
+	Tạo bản ghi Diet trạng thái PENDING_APPROVAL. Gửi thông báo yêu cầu phê duyệt tới Bác sĩ thú y (VET).
+	2
+	Bác sĩ thú y
+(VET - Dũng)
+	VET mở danh sách khẩu phần chờ duyệt. Xem xét bệnh lý và nhu cầu tiêu hóa của ngựa: Bấm 'Duyệt' (Approve) hoặc 'Từ chối' (Reject kèm lý do).
+	Nếu DUYỆT: Chuyển Diet sang ACTIVE, cập nhật bảng thực đơn dán trước ô chuồng. Nếu TỪ CHỐI: Bắn thông báo trả về cho HT kèm lý do để sửa lại.
+	3
+	Groom
+	Trong ca trực, Groom nhìn vào bảng thực đơn đã duyệt trên Checklist để cân đúng lượng thức ăn cho từng con ngựa.
+	Khi Groom bấm 'Đã cho ăn', hệ thống tự động trừ tồn kho thức ăn tương ứng trong kho của khu chuồng.
+	 
+Luồng C: Quản lý Kho vật tư theo Khu & Đề xuất bổ sung hàng
+Bước
+	Ai thực hiện?
+	Hành động & Giao diện
+	Hệ thống xử lý & Chuyển tiếp
+	1
+	Hệ thống
+	Hằng ngày, khi Groom tích hoàn thành các việc cho ăn / dùng thuốc, hệ thống tự động giảm trừ số lượng tồn kho của Khu chuồng.
+	So sánh số lượng tồn hiện tại với Định mức tồn kho tối thiểu (Min threshold).
+	2
+	Hệ thống
+	Nếu vật tư (ví dụ: Cám yến mạch hoặc Thuốc sát trùng) giảm xuống dưới mức tối thiểu, hệ thống đổi cờ cảnh báo màu vàng/đỏ trên màn hình 'Tồn kho khu' (SC-4.05).
+	Gửi cảnh báo 'Vật tư sắp hết' trên Dashboard của CM và Groom trưởng khu.
+	3
+	Groom / Vet
+	Groom hoặc VET mở 'Tạo đề xuất bổ sung vật tư' (SC-4.06), chọn mặt hàng, số lượng cần nhập, lý do và bấm 'Gửi đề xuất'.
+	Lưu phiếu đề xuất trạng thái PENDING, gửi tới Quản lý câu lạc bộ (CM).
+	4
+	Club Manager
+(CM)
+	CM xem xét đề xuất: Bấm 'Phê duyệt' hoặc 'Từ chối'. Khi hàng về, Groom/CM bấm 'Xác nhận nhập kho'.
+	Cộng số lượng mới vào kho của khu, xóa cờ cảnh báo tồn kho.
+	 
+2.2 Luồng hoạt động Flow 5: Đăng ký thi đấu, Kết quả & Báo cáo tài chính (Khánh phụ trách)
+Luồng A: Công bố giải đua & Đăng ký thi đấu (Race Registration)
+Bước
+	Ai thực hiện?
+	Hành động & Giao diện
+	Hệ thống xử lý & Chuyển tiếp
+	1
+	Club Manager
+(CM)
+	CM mở 'Quản lý giải đua' (SC-5.01), bấm 'Tạo giải đua mới': Nhập tên giải, cự ly (1000m-2400m), loại mặt sân (Cỏ/Cát), hạn đăng ký, lệ phí tham dự và cơ cấu giải thưởng.
+	Tạo bản ghi Race trạng thái OPEN_FOR_REGISTRATION, hiển thị công khai trên bảng tin CLB.
+	2
+	Huấn luyện viên
+(HT - Khánh)
+	HT mở 'Đăng ký thi đấu' (SC-5.02), chọn giải đua, xem danh sách ngựa của CLB. Hệ thống tự động lọc ra danh sách ngựa: ĐỦ ĐIỀU KIỆN (Màu xanh) và KHÔNG ĐỦ ĐIỀU KIỆN (Màu đỏ/xám kèm lý do).
+	Hệ thống kiểm tra tự động 3 điều kiện: 1) Không có Khóa y tế (Medical Lock); 2) Đã hết thời gian ngưng thuốc (Withdrawal period); 3) Đạt trạng thái 'Sẵn sàng thi đấu'.
+	3
+	Huấn luyện viên
+(HT - Khánh)
+	HT tích chọn các con ngựa đủ điều kiện, chỉ định Nài ngựa (Jockey) dự kiến và bấm 'Xác nhận đăng ký'.
+	Tạo bản ghi RaceRegistration trạng thái REGISTERED. Trừ lệ phí thi đấu vào sổ chi phí dự giải của ngựa.
+	4
+	Chủ ngựa
+(Owner)
+	Chủ ngựa đăng nhập vào hệ thống, nhận được thông báo 'Ngựa của bạn đã được đăng ký tham gia giải đua X'. Owner có thể bấm xem chi tiết giải và đối thủ.
+	Hệ thống minh bạch hóa thông tin thi đấu cho Chủ sở hữu.
+	 
+Luồng B: Ghi nhận kết quả thi đấu chính thức (Race Execution & Results)
+Bước
+	Ai thực hiện?
+	Hành động & Giao diện
+	Hệ thống xử lý & Chuyển tiếp
+	1
+	HT hoặc CM
+	Sau khi giải đua kết thúc, HT hoặc CM mở màn hình 'Ghi kết quả thi đấu' (SC-5.03), nhập các thông số: Thứ hạng về đích (Hạng 1, 2, 3...), Thời gian chạy (mm:ss.ss), Tốc độ trung bình (km/h) và Tiền thưởng đạt được.
+	Hệ thống tính toán vận tốc, kiểm tra tính hợp lệ của thời gian so với cự ly giải.
+	2
+	Club Manager
+(CM)
+	CM kiểm tra lại biên bản kết quả chính thức và bấm 'Chốt kết quả' (Lock Results).
+	1. Chuyển Race sang trạng thái COMPLETED.
+2. Tự động ghi thành tích vào Hồ sơ lý lịch của ngựa (Career Record: số lần chạy, số lần thắng, tiền thưởng tích lũy).
+3. Tự động chuyển ngựa về trạng thái 'Nghỉ ngơi' (RESTING) sau thi đấu.
+	3
+	Hệ thống
+	Hệ thống tự động kích hoạt tính toán phân bổ giải thưởng theo quy chế đã cấu hình.
+	Sinh bản ghi doanh thu chia thưởng cho Chủ sở hữu (Owner) và gửi thông báo chúc mừng kèm kết quả.
+	 
+Luồng C: Hạch toán Tài chính & Báo cáo minh bạch cho Chủ sở hữu (Financial Settlement)
+Bước
+	Ai thực hiện?
+	Hành động & Giao diện
+	Hệ thống xử lý & Chuyển tiếp
+	1
+	Hệ thống
+	Cuối mỗi tháng hoặc sau mỗi sự kiện, hệ thống tự động tổng hợp Sổ chi phí của từng con ngựa: Tiền chuồng trại (Flow 1/4) + Tiền thức ăn tiêu hao (Flow 4) + Tiền thuốc/khám thú y (Flow 3) + Lệ phí thi đấu (Flow 5).
+	Gom toàn bộ các khoản phát sinh vào bảng ExpenseLedger theo từng horseId và ownerId.
+	2
+	Hệ thống
+	Tổng hợp Sổ doanh thu chia thưởng từ giải đua (Flow 5) của con ngựa đó theo tỷ lệ sở hữu (ví dụ: Owner sở hữu 100% hoặc 50%).
+	Ghi vào bảng RevenueLedger.
+	3
+	Club Manager
+(CM)
+	CM mở 'Báo cáo tài chính & Thành tích' (SC-5.04), kiểm tra số liệu tổng quát toàn CLB và từng Owner. CM bấm 'Phát hành báo cáo tháng'.
+	Hệ thống tạo file báo cáo định kỳ (PDF/Bảng biểu), khóa sổ kế toán tháng.
+	4
+	Chủ ngựa
+(Owner)
+	Owner đăng nhập hệ thống, mở tab 'Tài chính của tôi'. Owner thấy rõ: Tổng chi phí nuôi ngựa trong tháng, Doanh thu tiền thưởng đua ngựa mang về, và Số dư ròng (Net Profit/Loss).
+	Chủ ngựa nắm rõ dòng tiền minh bạch, không phát sinh tranh chấp.
+	 
+PHẦN 3: FORM LIST KHẢO SÁT & XÁC NHẬN LUỒNG HOẠT ĐỘNG (GỬI DŨNG & KHÁNH)
+📌 HƯỚNG DẪN TRẢ LỜI CHO DŨNG VÀ KHÁNH
+Mục đích phần này: Để Dũng và Khánh đọc hiểu toàn bộ các luồng ở Phần 1 & Phần 2, sau đó TRẢ LỜI CÁC CÂU HỎI VỀ LUỒNG HOẠT ĐỘNG dưới đây.
+Không cần điền số liệu kỹ thuật phức tạp, chỉ cần xác nhận LUỒNG ĐI (Workflow logic) để đội lập trình mô hình giả lập dựng đúng chuỗi sự kiện!
+	 
+3.1 Phiếu khảo sát Luồng hoạt động dành cho DŨNG (Y tế - Flow 3 & Chuồng trại - Flow 4)
+❓ CÂU HỎI D1: LUỒNG THÔNG BÁO KHI GROOM PHÁT HIỆN NGỰA ỐM
+• Bối cảnh luồng: Groom thấy ngựa có triệu chứng lạ trong lúc dọn chuồng.
+👉 Vấn đề cần xác nhận: Theo Dũng, khi Groom bấm gửi 'Ghi chú quan sát bất thường', hệ thống cần chuyển tiếp thông tin như thế nào là hợp lý nhất?
+[ ] Cách 1: Bắn Notification chuông đỏ ngay trên web/app cho Vet trực + Gửi email khẩn.
+[ ] Cách 2: Tự động tạo luôn một 'Phiếu hẹn khám bệnh' ở trạng thái Chờ khám trên màn hình của Vet.
+[ ] Ý kiến riêng của Dũng về luồng này: Bắn Notification, chưa rõ có email ko, và ko nên tạo phiếu hẹn khám bệnh sẵn, ban đầu cái này nên dùng để kiểu hẹn tái khám thì đúng hơn :v
+	 
+❓ CÂU HỎI D2: QUY TRÌNH KÍCH HOẠT KHÓA HUẤN LUYỆN (MEDICAL LOCK)
+• Bối cảnh luồng: Vet khám xong và thấy ngựa bị đau cơ hoặc chấn thương gân.
+👉 Vấn đề cần xác nhận: Khi nào Vet BẮT BUỘC phải bật Medical Lock? Có trường hợp nào ngựa ốm nhẹ mà không cần Lock không?
+[ ] Ý kiến của Dũng: Khi nào thì Lock, khi nào chỉ cần cảnh báo theo dõi mà không Lock? ...........
+[ ] Khi bật Lock, hệ thống có cần bắt buộc Vet phải nhập 'Ngày hẹn xem xét lại' (Review Date) không? [ Có / Không ]
+[ ] Lý do: 
+-Khi ngựa bị chấn thương từ mức vừa trở lên thì nên có khóa. Trong code hiện tại thì tầm Under Observation đã thể thêm Training Lock rồi.
+-Nặng thì Lock, nhẹ thì Under Observation
+-Review Date có sẵn r, có thể kéo dài Review Date ra thôi, hoặc hủy mịe nó khóa
+	 
+❓ CÂU HỎI D3: LUỒNG SINH CÔNG VIỆC TỪ ĐƠN THUỐC SANG CHECKLIST CỦA GROOM
+• Bối cảnh luồng: Vet kê đơn thuốc gồm kháng sinh uống sáng-tối và chườm đá khớp 2 lần/ngày.
+👉 Vấn đề cần xác nhận: Luồng chuyển đổi từ chỉ định của Vet sang công việc của Groom diễn ra như thế nào?
+1. Task y tế này tự động nhảy vào ca trực của Groom phụ trách ô chuồng đó, đúng hay sai? [ Đúng / Sai ]
+2. Nếu Groom bận không làm được thì ai có quyền gán task đó cho người khác? [ CM / Vet / Chính Groom đó ]
+3. Khi Groom bấm 'Xác nhận hoàn thành task', kho thuốc có tự động trừ tồn kho ngay không? [ Có / Không ]
+1. Đúng
+2. CM
+3. Có  
+	
+
+❓ CÂU HỎI D4: LUỒNG VET PHÊ DUYỆT KHẨU PHẦN ĂN DO TRAINER LẬP (FLOW 4)
+• Bối cảnh luồng: Trainer gửi đề xuất đổi khẩu phần ăn (tăng cám yến mạch, giảm cỏ).
+👉 Vấn đề cần xác nhận: Vet kiểm tra những gì trước khi bấm 'Duyệt' hoặc 'Từ chối'? Nếu từ chối thì luồng xử lý tiếp theo là gì?
+• Các lý do chính khiến Vet từ chối khẩu phần: Ditconmemay hỏi Vet chứ hỏi t làm c j, phần hệ thống chưa có xử lí thức ăn ko đủ thì báo Vet hay đẩy sang CM hoặc HT. Nhma có thể là do tình trạng ngựa ko phù hợp với khẩu phần ăn được đưa ra.
+• Khi Vet từ chối, khẩu phần cũ vẫn tiếp tục dùng hay ngựa phải ăn theo chế độ mặc định? Tiếp tục dùng cũ (T nghĩ nên là thế, khi mà ko có cái cũ thì mới nên dùng mặc định)
+• Sau khi Vet bấm Duyệt, bảng khẩu phần mới có hiệu lực ngay trong bữa ăn kế tiếp không? [ Có / Không ] Có
+	 
+❓ CÂU HỎI D5: LUỒNG GỠ KHÓA HUẤN LUYỆN VÀ CHO PHÉP NGỰA VẬN ĐỘNG LẠI
+• Bối cảnh luồng: Ngựa đã điều trị đủ ngày và hồi phục tốt.
+👉 Vấn đề cần xác nhận: Khi Vet gỡ Medical Lock, ngựa có được chạy nặng ngay không hay phải qua bước trung gian nào?
+[ ] Cho phép chạy nặng ngay lập tức. Dell
+[ ] Bắt buộc phải qua giai đoạn 'Chỉ cho phép đi dạo/chạy nhẹ' trong phác đồ phục hồi.
+Bắt buộc, và các bài tập nặng bị Blocked khi mà bị Khoá, nên cần có HT khôi phục tại
+[ ] Vet có phải gửi tin nhắn/thông báo bàn giao trạng thái cho Trainer (Khánh) không? [ Có / Không ] Hiện tại Vet ko gửi mà là hệ thống tự gửi.
+	 
+3.2 Phiếu khảo sát Luồng hoạt động dành cho KHÁNH (Huấn luyện - Flow 2 & Thi đấu - Flow 5)
+❓ CÂU HỎI K1: LUỒNG PHẢN ỨNG CỦA TRAINER KHI NGỰA BỊ KHÓA Y TẾ
+• Bối cảnh luồng: Trainer đang lên lịch tập tuần thì một con ngựa bị Vet bật Medical Lock.
+👉 Vấn đề cần xác nhận: Trên giao diện Lịch tập (SC-2.03), Trainer muốn hệ thống hiển thị và cưỡng chế luồng như thế nào?
+[ ] Ẩn luôn con ngựa đó khỏi danh sách xếp bài tập.
+[ ] Vẫn hiện tên ngựa nhưng bị khóa màu xám/đỏ, cấm kéo thả bài tập nặng, chỉ cho xếp bài đi dạo.
+[ ] Tự động chuyển các buổi tập nặng đã lên lịch thành trạng thái 'Hủy do y tế' (Cancelled by Medical).
+[ ] Ý kiến bổ sung của Khánh: .................................................................
+	 
+❓ CÂU HỎI K2: LUỒNG TUYỂN CHỌN VÀ ĐĂNG KÝ THI ĐẤU GIẢI (RACE ELIGIBILITY)
+• Bối cảnh luồng: Có một giải đua sắp diễn ra, Trainer cần chọn 2 trong số 10 con ngựa đi thi.
+👉 Vấn đề cần xác nhận: Hệ thống sẽ chạy luồng kiểm tra điều kiện tự động như thế nào trước khi cho phép Trainer bấm nút 'Đăng ký'?
+1. Ngựa đang bị Medical Lock có được hiện lên để bấm đăng ký không? [ Chặn cứng / Hiện nhưng báo lỗi ]
+2. Nếu ngựa vừa uống thuốc xong và còn trong thời gian ngưng thuốc (Withdrawal period), hệ thống chặn hay cảnh báo? [ .................... ]
+3. Điều kiện về số buổi tập: Ngựa phải tập ít nhất bao nhiêu buổi trong tháng mới được đăng ký? [ ........ buổi ]
+	 
+❓ CÂU HỎI K3: LUỒNG GHI NHẬN VÀ KHÓA KẾT QUẢ THI ĐẤU CHÍNH THỨC
+• Bối cảnh luồng: Sau khi cuộc đua kết thúc tại trường đua.
+👉 Vấn đề cần xác nhận: Trình tự nhập và chốt kết quả diễn ra như thế nào giữa Trainer và Club Manager?
+• Bước 1: Ai là người nhập kết quả thô (Thứ hạng, thời gian chạy, tốc độ)? [ Trainer / CM ]
+• Bước 2: Ai là người bấm nút 'Chốt kết quả' (Lock Results) để không ai sửa được nữa? [ CM ]
+• Bước 3: Sau khi chốt, trạng thái của ngựa tự động chuyển về trạng thái gì? [ Nghỉ ngơi / Sẵn sàng thi đấu ]
+	 
+❓ CÂU HỎI K4: LUỒNG HẠCH TOÁN TIỀN THƯỞNG VÀ PHÂN CHIA TÀI CHÍNH CHO CHỦ NGỰA
+• Bối cảnh luồng: Ngựa đạt Top 1 giải đua và được thưởng 100.000.000 VNĐ.
+👉 Vấn đề cần xác nhận: Luồng phân bổ tiền thưởng và trừ chi phí diễn ra như thế nào trên hệ thống?
+1. Hệ thống có tự động trừ tiền lệ phí dự giải và chi phí chăm sóc trong tháng trước khi chia thưởng không? [ Có / Không ]
+2. Tỷ lệ % chia thưởng mẫu giữa Owner - Trainer - Nài ngựa - Quỹ CLB là bao nhiêu? [ Owner: ..%, HT: ..%, Jockey: ..%, CLB: ..% ]
+3. Chủ ngựa xem báo cáo tài chính này ở đâu? [ Màn hình Báo cáo tài chính / Tab riêng của Owner ]
+	 
+❓ CÂU HỎI K5: ĐIỂM GIAO NHAU GIỮA TẢI HUẤN LUYỆN (FLOW 2) VÀ QUYẾT ĐỊNH THI ĐẤU (FLOW 5)
+• Bối cảnh luồng: Mô hình giả lập cần biết khi nào ngựa đạt điểm rơi phong độ để đi thi.
+👉 Vấn đề cần xác nhận: Khánh đánh giá phong độ ngựa dựa trên luồng chỉ số nào sau mỗi buổi tập?
+[ ] Dựa trên Điểm đánh giá phong độ (Performance Rating 1-5 sao) do chính Trainer chấm sau buổi tập.
+[ ] Dựa trên Tốc độ chạy nước rút (Sprint Speed) đo được trong buổi tập gần nhất.
+[ ] Dựa trên Tỷ số tải an toàn ACWR (không bị quá tải, không bị thiếu tải).
+[ ] Ý kiến của Khánh về tiêu chí chốt danh sách đi thi: .........................................
+	 
+
+
+PHẦN 1: LUỒNG HOẠT ĐỘNG LIÊN HOÀN GIỮA Y TẾ (DŨNG) & HUẤN LUYỆN (KHÁNH)
+
+
+-Ở bước 1, t ko chắc là có nên cho Groom thông báo sang Vet và HT ko, hay chỉ nên thông báo cho Vet thôi. T nghĩ là khi thấy ngựa có vấn đề thì sau khi Groom hoàn thành báo cáo -> chuyển ngựa sang Under Oservation rồi để tk Vet giải quyết :v. Còn nếu gửi cho HT thì HT chắc phải để chỉ được xem thôi chứ ko đc cho ngựa tham gia huấn luyện, sau khi tk Vet khám rồi thì tk HT mới đc đụng vào ngựa, ít nhất nên đưa ngựa vào Under Observation rồi chuyển tk HT ko được đụng vào ngựa Under Observation
+-Ở bước 2, hệ thống ko được tự động tạo MedicalRecord, cái này phải là của Vet tạo, và phần gợi ý bấm Training Lock là ko cần thiết vì trong mục MedicalRecord có sẵn chọn Training Lock ngay trên ô xác định tạo MedicalRecord rồi
+PHẦN 2: LUỒNG HOẠT ĐỘNG CỦA FLOW 4 (CHUỒNG TRẠI) VÀ FLOW 5 (THI ĐẤU)
+2.1 Luồng hoạt động Flow 4: Chăm sóc chuồng trại, Dinh dưỡng & Tồn kho (Dũng phụ trách)
+Luồng A: Quản lý Ca trực & Checklist công việc của Groom
+-T nghĩ 1 trg 2 giai đoạn: Tk Groom làm mấy task y tế hoặc tk Vet kê đơn thuốc thì nên để cái nếu kho hết thuốc thì phải …
+-Cái tiếp theo thì t phát hiện sau khi đi hỏi AI. Là về vấn đề ban giao công việc, thì hình như nên thêm tính năng kiểu xác nhận công việc được bàn giao từ ca trực trước
+Luồng B: Vòng đời Khẩu phần ăn (Diet Lifecycle: Đề xuất -> Phê duyệt -> Cung cấp)
+ -Hiện t đang ko rõ Diet này có chỗ nào hiện ra toàn bộ danh sách ko, nếu có thì t nghĩ là sau 1 khoảng thời gian hoặc sau khi đổi sang Diet mới thì nên cho cái Diet cũ cook, để tránh nó bị in ra quá nhiều
+-Với chắc là sẽ cần thêm cái phần xử lí khi mà thức ăn trg kho bị thiếu khi HT lập DIet
+Luồng C: Quản lý Kho vật tư theo Khu & Đề xuất bổ sung hàng
+-Cái phần hết vật tư, khi tk CM duyệt đơn đề xuất vật tư thì lúc thực hiện trong Project (hoặc Demo cho cô) thì nên làm j để cho cái trạng thái của đơn đề xuất vật tư được tính là đã hoàn thành. Cụ thể là cái đoạn khi hàng về thì thực tế t đang ko biết nên trình bày như nào khi làm.
+Nếu thấy file Main sai thì ghi ra đây

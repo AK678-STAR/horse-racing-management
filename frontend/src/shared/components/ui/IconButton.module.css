@@ -1,0 +1,32 @@
+.btn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
+}
+.btn:hover { background: var(--surface-3); color: var(--text); }
+.badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: var(--text-on-brand);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--surface);
+}
